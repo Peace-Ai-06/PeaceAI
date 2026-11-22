@@ -1,0 +1,17 @@
+{
+  "name": "PeaceAi",
+  "short_name": "PeaceAi",
+  "description": "A calm, private workspace for agents, documents and code.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0c1315",
+  "theme_color": "#0c1315",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

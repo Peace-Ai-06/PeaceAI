@@ -1,4 +1,5 @@
 import './env.js';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -19,6 +20,8 @@ import { sandboxInfo } from './lib/sandbox.js';
 import { ocrAvailability } from './lib/ocr.js';
 import { shareAdminRouter, shareRouter } from './routes/share.js';
 import { workflowsAdminRouter, workflowsRouter } from './routes/workflows.js';
+import { absoluteUrl, escapeHtml, getBaseUrl, seoDescription } from './lib/seo.js';
+import { agentForShareToken } from './lib/share.js';
 
 const publicDir = path.resolve('src/public');
 
@@ -58,7 +61,80 @@ export function createApp() {
     res.status(404).json({ error: { code: 'not_found', message: 'API route not found' } });
   });
 
-  app.get('/share/:token', (_req, res) => res.sendFile(path.join(publicDir, 'share.html')));
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/app/') || ['/login', '/register', '/forgot-password', '/reset-password'].includes(req.path)) {
+      res.set('X-Robots-Tag', 'noindex, nofollow');
+    }
+    next();
+  });
+
+  app.get('/robots.txt', (req, res) => {
+    const body = [
+      'User-agent: *',
+      'Allow: /',
+      'Allow: /share/',
+      'Disallow: /api/',
+      'Disallow: /app/',
+      'Disallow: /login',
+      'Disallow: /register',
+      'Disallow: /forgot-password',
+      'Disallow: /reset-password',
+      '',
+      `Sitemap: ${absoluteUrl(req, '/sitemap.xml')}`,
+      '',
+    ].join('\n');
+    res.type('text/plain; charset=utf-8').set('Cache-Control', 'public, max-age=3600').send(body);
+  });
+
+  app.get('/sitemap.xml', (req, res) => {
+    const urls = [absoluteUrl(req, '/')];
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((url) => `  <url><loc>${escapeHtml(url)}</loc><changefreq>daily</changefreq><priority>0.8</priority></url>`).join('\n')}\n</urlset>\n`;
+    res.type('application/xml; charset=utf-8').set('Cache-Control', 'public, max-age=3600').send(xml);
+  });
+
+  app.get('/site.webmanifest', (_req, res) => {
+    res.sendFile(path.join(publicDir, 'site.webmanifest'), {
+      headers: { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Cache-Control': 'public, max-age=3600' },
+    });
+  });
+
+  app.get('/share/:token', (req, res) => {
+    const agent = agentForShareToken(req.params.token);
+    const base = getBaseUrl(req);
+    const canonical = `${base}/share/${encodeURIComponent(req.params.token)}`;
+    const title = agent ? `${agent.name} · PeaceAi` : 'Shared agent · PeaceAi';
+    const description = seoDescription(agent?.description, 'Chat with a shared PeaceAi agent.');
+    const image = absoluteUrl(req, '/logo.svg');
+    const noIndex = !agent || agent.shareEnabled === false;
+    const html = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(title)}</title>
+  <meta name="description" content="${escapeHtml(description)}">
+  <meta name="robots" content="${noIndex ? 'noindex, nofollow' : 'index, follow'}">
+  <link rel="canonical" href="${escapeHtml(canonical)}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="PeaceAi">
+  <meta property="og:title" content="${escapeHtml(title)}">
+  <meta property="og:description" content="${escapeHtml(description)}">
+  <meta property="og:url" content="${escapeHtml(canonical)}">
+  <meta property="og:image" content="${escapeHtml(image)}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${escapeHtml(title)}">
+  <meta name="twitter:description" content="${escapeHtml(description)}">
+  <meta name="twitter:image" content="${escapeHtml(image)}">
+  <meta name="theme-color" content="#0c1315">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+  <noscript><p>PeaceAi shared chat requires JavaScript.</p></noscript>
+  <script type="module" src="/js/share-page.js?v=1"></script>
+</body>
+</html>`;
+    res.status(noIndex ? 404 : 200).set('Content-Type', 'text/html; charset=utf-8').set('Cache-Control', 'no-cache, no-store, must-revalidate').send(html);
+  });
 
   // No aggressive caching: frontend changes must appear on a normal refresh.
   app.use(express.static(publicDir, {
@@ -66,9 +142,17 @@ export function createApp() {
     maxAge: 0,
     setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate'),
   }));
-  app.get(/.*/, (_req, res) => {
+  app.get(/.*/, (req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.sendFile(path.join(publicDir, 'index.html'));
+    const filePath = path.join(publicDir, 'index.html');
+    const canonical = absoluteUrl(req, '/');
+    const html = fs.readFileSync(filePath, 'utf8')
+      .replace('<link rel="canonical" href="/">', `<link rel="canonical" href="${escapeHtml(canonical)}">`)
+      .replace('<meta property="og:url" content="/">', `<meta property="og:url" content="${escapeHtml(canonical)}">`)
+      .replace('<meta property="og:image" content="/logo.svg">', `<meta property="og:image" content="${escapeHtml(absoluteUrl(req, '/logo.svg'))}">`)
+      .replace('<meta name="twitter:image" content="/logo.svg">', `<meta name="twitter:image" content="${escapeHtml(absoluteUrl(req, '/logo.svg'))}">`)
+      .replace('"url":"/"', `"url":"${escapeHtml(canonical)}"`);
+    res.set('Content-Type', 'text/html; charset=utf-8').send(html);
   });
 
   app.use((error, _req, res, _next) => {
