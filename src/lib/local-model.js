@@ -72,8 +72,12 @@ function bestSentences(sources, query, limit = 3) {
 
 /** Tiny, safe arithmetic parser (no eval) for "12 * 4" style questions. */
 function arithmetic(text) {
-  const cleaned = String(text || '').replace(/[×÷]/g, (m) => (m === '×' ? '*' : '/'));
-  if (!/^[\d\s.+\-*/()]+[=?]?$/.test(cleaned.trim()) || !/[+\-*/]/.test(cleaned)) return null;
+  let cleaned = String(text || '').trim()
+    .replace(/^(?:what(?:'s| is)?|calculate|compute|solve|how much is|please)\s+/i, '')
+    .replace(/[×÷]/g, (m) => (m === '×' ? '*' : '/'))
+    .replace(/[=?]+\s*$/, '')
+    .trim();
+  if (!/^[\d\s.+\-*/()]+$/.test(cleaned) || !/[+\-*/]/.test(cleaned)) return null;
   const parts = cleaned.match(/\d+(?:\.\d+)?|[+\-*/()]/g) || [];
   let pos = 0;
   const peek = () => parts[pos];
@@ -184,7 +188,13 @@ function generalAnswer(raw, lower, messages, sources) {
     return 'I’m running smoothly and ready to help. What’s on your mind?';
   }
   const value = arithmetic(raw);
-  if (value !== null) return `**${raw.replace(/[=?\s]+$/, '')} = ${value}**`;
+  if (value !== null) {
+    const expression = raw
+      .replace(/^(?:what(?:'s| is)?|calculate|compute|solve|how much is|please)\s+/i, '')
+      .replace(/[=?\s]+$/, '')
+      .trim();
+    return `**${expression} = ${value}**`;
+  }
 
   if (!raw) {
     return 'I received your attachment. Ask me a question about it and I’ll do my best to answer.';

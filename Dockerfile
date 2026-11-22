@@ -2,6 +2,8 @@ FROM node:22-alpine
 
 WORKDIR /app
 
+RUN apk add --no-cache bubblewrap util-linux
+
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 

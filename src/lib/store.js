@@ -1,30 +1,26 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
 
 const dataDir = path.resolve(process.cwd(), process.env.PEACEAI_DATA_DIR || './data');
-const dbFile = path.join(dataDir, 'db.json');
+const legacyFile = path.join(dataDir, 'db.json');
+const sqliteFile = path.join(dataDir, 'peaceai.sqlite');
 const workspacesDir = path.join(dataDir, 'workspaces');
 
-const EMPTY = {
-  meta: { version: 3, createdAt: new Date().toISOString(), guestTenantId: null },
-  tenants: [],
-  users: [],
-  sessions: [],
-  guests: [],
-  providers: [],
-  knowledgeBases: [],
-  documents: [],
-  agents: [],
-  conversations: [],
-  pendingApprovals: [],
-  audit: [],
-  usage: [],
-  feedback: [],
-  apiKeys: [],
-};
+const COLLECTIONS = [
+  'tenants', 'users', 'sessions', 'guests', 'providers', 'knowledgeBases',
+  'documents', 'agents', 'conversations', 'pendingApprovals', 'audit',
+  'usage', 'feedback', 'apiKeys',
+];
+
+const EMPTY_META = { version: 4, createdAt: new Date().toISOString(), guestTenantId: null };
 
 let state = null;
+let sql = null;
+let upsertRecord = null;
+let deleteRecord = null;
+let snapshots = new Map();
 
 export function id(prefix = '') {
   return prefix + crypto.randomBytes(12).toString('hex');
@@ -34,40 +30,107 @@ export function now() {
   return new Date().toISOString();
 }
 
-export function initStore() {
+function openDatabase() {
   fs.mkdirSync(dataDir, { recursive: true });
   fs.mkdirSync(workspacesDir, { recursive: true });
-  if (fs.existsSync(dbFile)) {
-    const raw = fs.readFileSync(dbFile, 'utf8');
-    state = { ...structuredClone(EMPTY), ...JSON.parse(raw || '{}') };
-  } else {
-    state = structuredClone(EMPTY);
-    save();
+  sql = new DatabaseSync(sqliteFile);
+  sql.exec(`
+    PRAGMA journal_mode = WAL;
+    PRAGMA synchronous = NORMAL;
+    PRAGMA foreign_keys = ON;
+    CREATE TABLE IF NOT EXISTS records (
+      collection TEXT NOT NULL,
+      id TEXT NOT NULL,
+      data TEXT NOT NULL,
+      PRIMARY KEY (collection, id)
+    );
+    CREATE INDEX IF NOT EXISTS records_collection ON records(collection);
+    CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS chunks (
+      id TEXT PRIMARY KEY,
+      tenantId TEXT NOT NULL,
+      documentId TEXT,
+      knowledgeBaseId TEXT,
+      idx INTEGER NOT NULL,
+      text TEXT NOT NULL,
+      vector TEXT,
+      embeddingModel TEXT,
+      section TEXT
+    );
+    CREATE INDEX IF NOT EXISTS chunks_tenant ON chunks(tenantId);
+    CREATE INDEX IF NOT EXISTS chunks_document ON chunks(documentId);
+  `);
+  upsertRecord = sql.prepare('INSERT INTO records (collection, id, data) VALUES (?, ?, ?) ON CONFLICT(collection, id) DO UPDATE SET data = excluded.data');
+  deleteRecord = sql.prepare('DELETE FROM records WHERE collection = ? AND id = ?');
+}
+
+function loadState() {
+  state = { meta: structuredClone(EMPTY_META) };
+  for (const name of COLLECTIONS) state[name] = [];
+  for (const row of sql.prepare('SELECT collection, data FROM records').all()) {
+    if (Array.isArray(state[row.collection])) state[row.collection].push(JSON.parse(row.data));
   }
+  const metaRow = sql.prepare('SELECT value FROM meta WHERE key = ?').get('state');
+  if (metaRow) state.meta = { ...structuredClone(EMPTY_META), ...JSON.parse(metaRow.value) };
+}
+
+function migrateLegacyJson() {
+  if (!fs.existsSync(legacyFile)) return;
+  const { count } = sql.prepare('SELECT COUNT(*) AS count FROM records').get();
+  if (count > 0) return;
+  let legacy;
+  try {
+    legacy = JSON.parse(fs.readFileSync(legacyFile, 'utf8') || '{}');
+  } catch {
+    return;
+  }
+  state.meta = { ...structuredClone(EMPTY_META), ...(legacy.meta || {}) };
+  for (const name of COLLECTIONS) {
+    state[name] = Array.isArray(legacy[name]) ? legacy[name] : [];
+  }
+  // Vectors move out of the main records table and into the indexed chunks table.
+  for (const doc of state.documents) {
+    if (!Array.isArray(doc.chunks)) continue;
+    insertChunks(doc.chunks.map((chunk) => ({
+      ...chunk,
+      tenantId: doc.tenantId,
+      documentId: doc.id,
+      knowledgeBaseId: doc.knowledgeBaseId,
+    })));
+    doc.chunkCount = doc.chunkCount || doc.chunks.length;
+    delete doc.chunks;
+  }
+  save();
+  fs.renameSync(legacyFile, `${legacyFile}.migrated`);
+}
+
+export function initStore() {
+  if (!sql) openDatabase();
+  loadState();
+  migrateLegacyJson();
   runMigrations();
   ensureGuestDefaults();
   return state;
 }
 
-// Forward-only schema migrations. Each version adds missing top-level
-// collections/fields while preserving existing tenant data.
+// Forward-only schema upgrades. New releases add collections or meta fields
+// without discarding existing tenant data.
 export function runMigrations() {
   if (!state) return state;
   let changed = false;
-  for (const [key, value] of Object.entries(EMPTY)) {
-    if (key === 'meta') continue;
-    if (!Array.isArray(state[key])) { state[key] = structuredClone(value); changed = true; }
+  for (const name of COLLECTIONS) {
+    if (!Array.isArray(state[name])) { state[name] = []; changed = true; }
   }
-  if (!state.meta || typeof state.meta !== 'object') { state.meta = structuredClone(EMPTY.meta); changed = true; }
-  if (typeof state.meta.version !== 'number' || state.meta.version < 3) {
-    state.meta.version = 3;
+  if (!state.meta || typeof state.meta !== 'object') { state.meta = structuredClone(EMPTY_META); changed = true; }
+  if (typeof state.meta.version !== 'number' || state.meta.version < 4) {
+    state.meta.version = 4;
     changed = true;
   }
   if (changed) save();
   return state;
 }
 
-// Mirrors providers.js LOCAL_MODEL without importing it (avoids a security/store cycle).
+// Mirrors providers.js LOCAL_MODEL without importing it (avoids a cycle).
 const LOCAL_MODEL_ID = 'peaceai-local';
 
 function ensureLocalProvider(tenant) {
@@ -90,7 +153,7 @@ function ensureLocalProvider(tenant) {
 
 export function ensureGuestDefaults() {
   let changed = false;
-  if (!state.meta || typeof state.meta !== 'object') { state.meta = structuredClone(EMPTY.meta); changed = true; }
+  if (!state.meta || typeof state.meta !== 'object') { state.meta = structuredClone(EMPTY_META); changed = true; }
   if (state.meta.guestTenantId === undefined) { state.meta.guestTenantId = null; changed = true; }
   if (!Array.isArray(state.guests)) { state.guests = []; changed = true; }
   if (!state.tenants.length) {
@@ -142,7 +205,6 @@ export function ensureGuestDefaults() {
     }
     if (tenant.guestAccess.agentId !== agent.id) { tenant.guestAccess.agentId = agent.id; changed = true; }
 
-    // The offline model makes chat work immediately; admins can override it later.
     const { provider, created } = ensureLocalProvider(tenant);
     if (created) changed = true;
     const providerExists = state.providers.some((item) => item.id === agent.providerId && item.tenantId === tenant.id);
@@ -157,15 +219,49 @@ export function db() {
   return state;
 }
 
+// Persist only records that actually changed, in one transaction. Callers can
+// keep mutating objects returned by find()/filter() and then call save().
 export function save() {
-  if (!state) return;
-  const tmp = `${dbFile}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
-  fs.renameSync(tmp, dbFile);
+  if (!sql || !state) return;
+  const pending = [];
+  for (const name of COLLECTIONS) {
+    const items = Array.isArray(state[name]) ? state[name] : [];
+    const previous = snapshots.get(name) || new Map();
+    const current = new Map();
+    for (const item of items) {
+      if (!item || item.id == null) continue;
+      const json = JSON.stringify(item);
+      current.set(item.id, json);
+      if (previous.get(item.id) !== json) pending.push(['upsert', name, item.id, json]);
+    }
+    for (const itemId of previous.keys()) {
+      if (!current.has(itemId)) pending.push(['delete', name, itemId]);
+    }
+    snapshots.set(name, current);
+  }
+  const metaJson = JSON.stringify(state.meta || {});
+  const metaChanged = snapshots.get('__meta__') !== metaJson;
+  snapshots.set('__meta__', metaJson);
+  if (!pending.length && !metaChanged) return;
+
+  sql.exec('BEGIN IMMEDIATE');
+  try {
+    for (const [action, name, itemId, json] of pending) {
+      if (action === 'upsert') upsertRecord.run(name, itemId, json);
+      else deleteRecord.run(name, itemId);
+    }
+    if (metaChanged) {
+      sql.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('state', metaJson);
+    }
+    sql.exec('COMMIT');
+  } catch (error) {
+    sql.exec('ROLLBACK');
+    throw error;
+  }
 }
 
 export function all(name) {
-  return db()[name];
+  return db()[name] || [];
 }
 
 export function find(name, predicate) {
@@ -206,6 +302,64 @@ export function remove(name, predicate) {
   return removed;
 }
 
+/* --------------------------- indexed chunk store --------------------------- */
+
+export function insertChunks(chunks = []) {
+  if (!chunks.length) return;
+  if (!sql) initStore();
+  const stmt = sql.prepare(`INSERT INTO chunks (id, tenantId, documentId, knowledgeBaseId, idx, text, vector, embeddingModel, section)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET text = excluded.text, vector = excluded.vector, section = excluded.section`);
+  sql.exec('BEGIN IMMEDIATE');
+  try {
+    for (const chunk of chunks) {
+      stmt.run(
+        chunk.id,
+        chunk.tenantId || '',
+        chunk.documentId || null,
+        chunk.knowledgeBaseId || null,
+        Number(chunk.index || 0),
+        String(chunk.text || ''),
+        chunk.vector ? JSON.stringify(chunk.vector) : null,
+        chunk.embeddingModel || null,
+        chunk.section || null,
+      );
+    }
+    sql.exec('COMMIT');
+  } catch (error) {
+    sql.exec('ROLLBACK');
+    throw error;
+  }
+}
+
+export function deleteChunks(documentId) {
+  if (!sql) initStore();
+  sql.prepare('DELETE FROM chunks WHERE documentId = ?').run(documentId);
+}
+
+export function chunksForDocuments(documentIds = []) {
+  if (!sql) initStore();
+  if (!documentIds.length) return [];
+  const placeholders = documentIds.map(() => '?').join(',');
+  return sql.prepare(`SELECT * FROM chunks WHERE documentId IN (${placeholders}) ORDER BY documentId, idx`).all(...documentIds)
+    .map((row) => ({
+      id: row.id,
+      index: row.idx,
+      text: row.text,
+      vector: row.vector ? JSON.parse(row.vector) : null,
+      embeddingModel: row.embeddingModel,
+      section: row.section,
+      documentId: row.documentId,
+      knowledgeBaseId: row.knowledgeBaseId,
+      documentName: null,
+    }));
+}
+
+export function chunkCountForDocument(documentId) {
+  if (!sql) initStore();
+  return sql.prepare('SELECT COUNT(*) AS count FROM chunks WHERE documentId = ?').get(documentId).count;
+}
+
 export function purgeSession(token) {
   remove('sessions', (s) => s.token === token);
 }
@@ -220,4 +374,8 @@ export function tenantWorkspace(tenantId) {
   return dir;
 }
 
-export { dataDir, dbFile, workspacesDir };
+export function closeStore() {
+  if (sql) { sql.close(); sql = null; }
+}
+
+export { dataDir, sqliteFile, legacyFile as dbFile, workspacesDir };

@@ -8,7 +8,7 @@ Every resource is scoped to the authenticated user's tenant. `admin` role is req
 
 | Method | Path | Body | Response |
 | --- | --- | --- | --- |
-| GET | `/api/health` | - | `{ ok: true, version, time }` |
+| GET | `/api/health` | - | `{ ok: true, version, time, storage:'sqlite', sandbox:{mode,isolated,required,resourceLimits} }` |
 | POST | `/api/auth/register` | `{ email, password, name, tenantName }` | `{ user, tenant }` + cookie |
 | POST | `/api/auth/login` | `{ email, password }` | `{ user, tenant }` + cookie |
 | POST | `/api/auth/logout` | - | `{ ok: true }` |
@@ -36,7 +36,7 @@ Chat/conversation endpoints accept the guest cookie and restrict the agent to th
 | --- | --- | --- | --- |
 | GET | `/api/admin/overview` | - | `{ counts: { users, agents, knowledgeBases, documents, conversations }, tenant }` |
 | GET | `/api/admin/providers` | - | `{ providers: [Provider] }` |
-| POST | `/api/admin/providers` | `{ name, kind:'openai'|'anthropic'|'ollama', baseUrl, apiKey, enabled }` | `{ provider }` |
+| POST | `/api/admin/providers` | `{ name, kind:'local'|'openai'|'anthropic'|'ollama', baseUrl, apiKey, enabled }` | `{ provider }` |
 | PUT | `/api/admin/providers/:id` | same fields (omit `apiKey` to keep existing) | `{ provider }` |
 | DELETE | `/api/admin/providers/:id` | - | `{ ok: true }` |
 | POST | `/api/admin/providers/:id/test` | - | `{ ok, models: string[] }` |
@@ -60,7 +60,7 @@ Chat/conversation endpoints accept the guest cookie and restrict the agent to th
 | GET | `/api/admin/audit` | - | `{ entries }` |
 | GET | `/api/templates` | - | `{ templates: [AgentTemplate] }` |
 
-Provider: `{ id, tenantId, name, kind, baseUrl, hasApiKey, enabled, createdAt }` (apiKey never returned)
+Provider: `{ id, tenantId, name, kind, baseUrl, hasApiKey, enabled, createdAt, isBuiltIn? }` (apiKey never returned). A built-in `local` provider (`peaceai-local`) is seeded per tenant and wired to the default guest agent; it needs no base URL or API key and cannot be deleted.
 KnowledgeBase: `{ id, tenantId, name, description, documentCount, chunkCount, createdAt }`
 Document: `{ id, tenantId, knowledgeBaseId, name, mimeType, size, chunkCount, status:'ready'|'error', error?, createdAt }`
 Agent: `{ id, tenantId, name, description, icon, accent, persona, providerId, model, embeddingProviderId, embeddingModel, knowledgeBaseIds: string[], generation: { temperature, maxTokens }, tools: { enabled: string[], approvalRequired: boolean }, visibility:'tenant'|'link', createdAt }`
@@ -89,7 +89,7 @@ Message: `{ id, role:'user'|'assistant'|'tool', content, ts, toolCalls?: [ToolCa
 ### SSE events for `/api/chat/stream`
 ```
 event: meta\ndata: {"conversationId":"...","userMessageId":"...","assistantMessageId":"..."}\n\n
-event: sources\ndata: {"sources":[{"documentName":"...","chunkIndex":0,"score":0.82,"preview":"..."}]}\n\n
+event: sources\ndata: {"sources":[{"documentName":"...","documentId":"...","chunkIndex":0,"section":"Setup","score":0.82,"preview":"..."}]}\n\n
 event: delta\ndata: {"text":"..."}\n\n
 event: tool\ndata: {"toolCall":{"id":"...","name":"read_file","arguments":{...}},"status":"pending","approvalToken":"..."}\n\n
 event: tool\ndata: {"toolCall":{...},"status":"done","result":{"ok":true,...}}\n\n

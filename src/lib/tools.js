@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { db, find, id, now, remove, save, tenantWorkspace } from './store.js';
 import { randomToken } from './security.js';
 import { ApiError } from './http.js';
+import { sandboxInfo, wrapCommand } from './sandbox.js';
 
 export const TOOL_DEFINITIONS = [
   {
@@ -98,19 +99,66 @@ export function resolveSafe(root, relative = '.') {
   return target;
 }
 
-async function runProcess(root, command, args) {
+function killProcessGroup(child) {
+  try {
+    process.kill(-child.pid, 'SIGKILL');
+  } catch {
+    try { child.kill('SIGKILL'); } catch { /* already gone */ }
+  }
+}
+
+async function runProcess(root, command, args, allowFallback = true) {
+  const wrapped = wrapCommand(command, args, root, !allowFallback);
+  const timeout = Math.max(1000, Number(process.env.PEACEAI_TOOL_TIMEOUT_MS) || 10000);
+  const maxOutput = Math.max(1024, Number(process.env.PEACEAI_TOOL_MAX_OUTPUT) || 100000);
+  const info = sandboxInfo();
   return new Promise((resolve) => {
-    const child = spawn(command, args, { cwd: root, shell: false, timeout: 10000 });
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
-    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
-    child.on('error', (error) => resolve({ ok: false, error: error.message }));
-    child.on('close', (code) => resolve({
-      ok: code === 0,
-      output: (stdout + (stderr ? `\n[stderr] ${stderr}` : '')).slice(0, 100000),
-      exitCode: code,
-    }));
+    let timedOut = false;
+    let settled = false;
+    const child = spawn(wrapped.command, wrapped.args, {
+      cwd: root,
+      shell: false,
+      detached: true,
+      env: { PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', LANG: 'C.UTF-8', HOME: root },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killProcessGroup(child);
+    }, timeout);
+    const append = (target, chunk) => {
+      const room = maxOutput - target.length;
+      if (room > 0) return target + chunk.toString().slice(0, room);
+      return target;
+    };
+    child.stdout.on('data', (chunk) => { stdout = append(stdout, chunk); });
+    child.stderr.on('data', (chunk) => { stderr = append(stderr, chunk); });
+    child.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (allowFallback && !info.required && ['EPERM', 'EACCES', 'ENOENT'].includes(error.code)) {
+        console.warn('[PeaceAi] OS sandbox unavailable; falling back to host execution:', error.message);
+        runProcess(root, command, args, false).then(resolve);
+        return;
+      }
+      resolve({ ok: false, error: error.message, sandbox: info.mode });
+    });
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (timedOut) killProcessGroup(child);
+      resolve({
+        ok: !timedOut && code === 0,
+        output: (stdout + (stderr ? `\n[stderr] ${stderr}` : '')).slice(0, maxOutput),
+        exitCode: code,
+        timedOut,
+        sandbox: info.mode,
+      });
+    });
   });
 }
 

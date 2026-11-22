@@ -1,10 +1,15 @@
 import { db, filter, find, insert, now, remove } from './store.js';
-import { randomToken, sign } from './security.js';
+import { randomToken, safeEqualHex, sign } from './security.js';
 
 import { ApiError } from './http.js';
 
 export const SESSION_COOKIE = 'peaceai_session';
 export const GUEST_COOKIE = 'peaceai_guest';
+
+function sessionLifetimeMs() {
+  const hours = Number(process.env.SESSION_HOURS || 168);
+  return (Number.isFinite(hours) && hours > 0 ? Math.min(hours, 24 * 30) : 168) * 3600 * 1000;
+}
 
 export function parseCookies(header = '') {
   const cookies = {};
@@ -19,7 +24,7 @@ export function parseCookies(header = '') {
 }
 
 export function setSessionCookie(res, token) {
-  const maxAge = Number(process.env.SESSION_HOURS || 168) * 3600 * 1000;
+  const maxAge = sessionLifetimeMs();
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
@@ -92,7 +97,7 @@ export function createSession(res, userId) {
     userId,
     signature: sign(token),
     createdAt: now(),
-    expiresAt: new Date(Date.now() + Number(process.env.SESSION_HOURS || 168) * 3600 * 1000).toISOString(),
+    expiresAt: new Date(Date.now() + sessionLifetimeMs()).toISOString(),
   });
   setSessionCookie(res, token);
   return token;
@@ -102,7 +107,7 @@ export function requireAuth(req, _res, next) {
   const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
   if (!token) return next(new ApiError(401, 'Please sign in to continue', 'unauthorized'));
   const session = find('sessions', (s) => s.token === token);
-  if (!session || session.signature !== sign(token) || new Date(session.expiresAt) < new Date()) {
+  if (!session || !safeEqualHex(session.signature, sign(token)) || new Date(session.expiresAt) < new Date()) {
     return next(new ApiError(401, 'Your session has expired', 'unauthorized'));
   }
   const user = find('users', (u) => u.id === session.userId && u.active !== false);
@@ -119,7 +124,7 @@ export function optionalAuth(req, res, next) {
   const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
   if (token) {
     const session = find('sessions', (s) => s.token === token);
-    if (session && session.signature === sign(token) && new Date(session.expiresAt) >= new Date()) {
+    if (session && safeEqualHex(session.signature, sign(token)) && new Date(session.expiresAt) >= new Date()) {
       const user = find('users', (u) => u.id === session.userId && u.active !== false);
       const tenant = user && find('tenants', (t) => t.id === user.tenantId);
       if (user && tenant) {

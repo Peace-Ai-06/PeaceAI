@@ -49,6 +49,39 @@ export async function extractText(file) {
   return text;
 }
 
+// Structure-aware chunking for indexed documents. Markdown headings become
+// section labels, and long blocks are split with overlap so answers can cite
+// the part of the document they came from.
+export function chunkDocument(text, { size = 900, overlap = 120 } = {}) {
+  const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+  const pieces = [];
+  let section = '';
+  let buffer = '';
+  const flush = () => {
+    if (buffer.trim()) pieces.push({ text: buffer.trim(), section });
+    buffer = '';
+  };
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const heading = /^(#{1,6})\s+(.+)$/.exec(trimmed);
+    if (heading) { flush(); section = heading[2].trim().slice(0, 120); continue; }
+    if (!trimmed) continue;
+    const candidate = buffer ? `${buffer}\n${trimmed}` : trimmed;
+    if (candidate.length <= size) { buffer = candidate; continue; }
+    flush();
+    if (trimmed.length > size) {
+      const step = Math.max(1, size - overlap);
+      for (let i = 0; i < trimmed.length; i += step) {
+        pieces.push({ text: trimmed.slice(i, i + size), section });
+      }
+    } else {
+      buffer = trimmed;
+    }
+  }
+  flush();
+  return pieces.map((piece, index) => ({ ...piece, index }));
+}
+
 export function chunkText(text, { size = 900, overlap = 120 } = {}) {
   const paragraphs = text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
   const pieces = [];

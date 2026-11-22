@@ -7,6 +7,12 @@ import { DEFAULT_BRANDING, DEFAULT_THEME, sanitizeTheme, slugify } from '../lib/
 
 export const authRouter = Router();
 
+// Auth responses contain identity data and Set-Cookie headers; never cache them.
+authRouter.use((_req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
+
 authRouter.post('/register', asyncHandler((req, res) => {
   const email = required(req.body?.email, 'email').toLowerCase();
   const password = required(req.body?.password, 'password');
@@ -81,6 +87,9 @@ authRouter.post('/change-password', requireAuth, asyncHandler((req, res) => {
   if (!verifyPassword(current, req.user.passwordHash)) fail(400, 'Current password is incorrect', 'validation_error');
   if (next.length < 8) fail(400, 'New password must be at least 8 characters', 'validation_error');
   update('users', req.user.id, { passwordHash: hashPassword(next) });
+  // Keep the current session signed in, but invalidate every other session
+  // so a stolen cookie cannot survive a password change.
+  remove('sessions', (s) => s.userId === req.user.id && s.token !== req.session.token);
   logAudit(req.tenant.id, req.user.id, 'auth.change_password', {});
   res.json({ ok: true });
 }));

@@ -8,6 +8,13 @@ const attr = (value) => String(value ?? '').replace(/["\\]/g, '\\$&');
 const byToolId = (scope, id) => scope?.querySelector(`[data-tool-id="${attr(id)}"]`);
 const scrollBottom = (el) => { if (el) el.scrollTop = el.scrollHeight; };
 
+const SUGGESTIONS = [
+  { icon: icons.spark, title: 'Explain a concept', prompt: 'Explain how retrieval-augmented generation works in simple terms.' },
+  { icon: icons.edit, title: 'Write something', prompt: 'Write a short, friendly project update for my team.' },
+  { icon: icons.file, title: 'Use my documents', prompt: 'Summarize the key points of my uploaded documents.' },
+  { icon: icons.chat, title: 'Debug with me', prompt: 'Help me debug a Node.js error. I will paste the code and the error.' },
+];
+
 function chatSkeleton() {
   return `
     <div class="page-head">
@@ -93,6 +100,11 @@ function bindEvents(container) {
     const action = el.dataset.action;
 
     if (action === 'retry-chat') { renderChat(container); return; }
+    if (action === 'use-prompt') {
+      const field = container.querySelector('#composer-input');
+      if (field) { field.value = el.dataset.prompt || ''; field.focus(); }
+      return;
+    }
     if (action === 'new-chat') { newChat(container); return; }
     if (action === 'attach') { container.querySelector('#attachment-input').click(); return; }
     if (action === 'dismiss-alert') { el.closest('.alert')?.remove(); return; }
@@ -244,8 +256,12 @@ function showEmptyChat(container) {
   const agent = state.agents.find((a) => a.id === state.currentAgentId);
   messages.innerHTML = `<div class="chat-empty">
     <div class="empty-glyph">${icons.spark}</div>
-    <h2>${agent ? escapeHtml(agent.name) : 'Start a conversation'}</h2>
-    <p class="muted">${agent ? escapeHtml(agent.description || 'Ask a question to begin.') : 'Select or create an agent to begin.'}</p>
+    <h2>${agent ? 'What can I help with?' : 'Start a conversation'}</h2>
+    <p class="muted">${agent ? `You're chatting with ${escapeHtml(agent.name)}. Ask anything, or try one of these:` : 'Select or create an agent to begin.'}</p>
+    ${agent ? `<div class="suggestions">${SUGGESTIONS.map((item) => `
+      <button type="button" class="suggestion" data-action="use-prompt" data-prompt="${escapeHtml(item.prompt)}">
+        ${item.icon}<span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.prompt)}</small></span>
+      </button>`).join('')}</div>` : ''}
   </div>`;
 }
 

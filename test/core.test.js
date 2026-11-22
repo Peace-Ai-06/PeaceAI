@@ -77,6 +77,7 @@ test('built-in local model chats, uses sources, math and tools offline', () => {
 
   const math = generateLocal([{ role: 'user', content: '12 * (3 + 1)' }]);
   assert.match(math.content, /48/);
+  assert.match(generateLocal([{ role: 'user', content: 'what is 12 * (3 + 1)?' }]).content, /48/);
   assert.equal(generateLocal([{ role: 'user', content: 'What is your name?' }]).content.includes('Local'), true);
 
   const tool = generateLocal(

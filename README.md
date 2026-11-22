@@ -9,17 +9,17 @@ PeaceAi is a self-hosted, multi-tenant AI workspace built entirely with Node.js 
 - **Three-in-one experience**: conversational chat, document Q&A, and a coding agent that can list/read/search/write files and run allowlisted commands.
 - **Works out of the box**: a built-in `peaceai-local` engine answers chat, greetings, math and document questions with zero setup, no API key and no network.
 - **Admin-controlled model setup**: switch any agent to OpenAI-compatible, Anthropic, or local Ollama providers. Choose the provider and model for every agent. API keys are encrypted at rest.
-- **RAG over uploads**: PDF, DOCX, Markdown, text, JSON, CSV, HTML and source files are parsed, chunked, and indexed. Uses vector embeddings when configured and falls back to lexical retrieval otherwise.
+- **RAG over uploads**: PDF, DOCX, Markdown, text, JSON, CSV, HTML and source files are parsed, structure-aware chunked (with heading sections and overlap), and indexed in SQLite. Hybrid lexical + vector retrieval with a second-pass rerank; falls back to lexical when embeddings are unavailable.
 - **Agent templates**: General Assistant, Code Partner, Research Librarian, Technical Writer, Support Desk, Data Analyst.
 - **Multi-tenant isolation**: every tenant has its own providers, documents, agents, conversations, audit log, and file sandbox.
 - **Unique per user**: per-user themes (mode, accent, font, density, sidebar, scoped custom CSS) layered on top of tenant branding, plus conversation-aware, non-repetitive answers.
-- **Safe tools**: paths are sandboxed, hidden/parent paths are rejected, commands are allowlisted, and write/edit/run tools require click-to-approve.
+- **Safe tools**: paths are sandboxed, hidden/parent paths are rejected, commands are allowlisted, write/edit/run tools require click-to-approve, and commands run in a bubblewrap namespace with CPU/time/output caps when available. Guest sessions never get tools.
 - **Streaming**: SSE chat with live tokens, source panels, and interactive tool approval cards.
-- **Node.js only**: Express backend, vanilla HTML/CSS/JS frontend, JSON persistence — no Python, no external frontend build step.
+- **Node.js only**: Express backend, vanilla HTML/CSS/JS frontend, built-in `node:sqlite` persistence — no Python, no native database module, no frontend build step.
 
 ## Quick start
 
-Requirements: Node.js 20+ (tested on Node 26). Optional: Ollama or a hosted API key for larger models — the built-in offline model needs neither.
+Requirements: Node.js 22.5+ (tested on Node 26) for built-in `node:sqlite`. Optional: bubblewrap (`bwrap`) + `prlimit` for OS-level command isolation, Ollama or a hosted API key for larger models — the built-in offline model needs neither.
 
 ```bash
 cd "PeaceAi"
@@ -70,7 +70,7 @@ src/
   server.js            Express app + route wiring + SPA fallback
   env.js               .env loader (runs before other modules)
   lib/
-    store.js           JSON persistence, IDs, audit, tenant workspaces
+    store.js           SQLite persistence, migrations, IDs, audit, chunk store
     security.js        scrypt passwords, AES-GCM key encryption, session signing
     auth.js            sessions, cookies, role middleware
     http.js            errors and validation helpers
@@ -94,12 +94,12 @@ data/                  created at runtime (gitignored): db.json, secret, workspa
 
 - Change `PEACEAI_SECRET` before real use. It encrypts stored provider API keys and signs sessions. A generated fallback secret is written to `data/secret` if none is configured.
 - Sessions are httpOnly cookies; passwords are salted scrypt hashes; keys are never returned by the API.
-- The coding sandbox is defense-in-depth, not a full container. Run PeaceAi as a non-root user and do not expose it publicly without TLS and an auth proxy if you allow code execution.
+- Check `GET /api/health` → `sandbox.mode` at startup. `host` means only path/command allowlists apply; `bwrap` means commands run in a namespace with only the tenant workspace writable. Run PeaceAi as a non-root user and do not expose it publicly without TLS and an auth proxy if you allow code execution.
 - Custom user CSS is stripped of angle brackets to prevent markup injection, but only allow trusted users to write it.
 
 ## Known limitations
 
-- JSON-file persistence suits single-instance deployments; multi-node scale would need a shared database.
+- SQLite persistence suits single-instance deployments; multi-node scale would need a shared database or a replicated engine.
 - No model fine-tuning/training (see note above).
 - Vector search is an in-process cosine scan — fine for thousands of chunks, not for millions.
 - Only text-extractable PDFs are useful; scanned PDFs need OCR outside PeaceAi.
@@ -119,3 +119,10 @@ See [`docs/API.md`](docs/API.md) for all endpoints, payloads, and SSE events.
 - **Docker & CI** — `docker build -t peaceai . && docker run -p 3000:3000 -v peaceai-data:/app/data peaceai`. GitHub Actions runs `npm test` on Node 20 and 22.
 
 > Guests never receive file or command tools, regardless of the agent's tool configuration.
+
+## Storage, retrieval and isolation notes
+
+- On first start, an existing `data/db.json` is imported into `data/peaceai.sqlite` and renamed `db.json.migrated`. Vectors are moved out of documents into an indexed `chunks` table.
+- `PEACEAI_SANDBOX=auto|bwrap|none` controls command isolation. `auto` uses bubblewrap when installed and warns if it has to fall back; `bwrap` requires it and fails closed.
+- `PEACEAI_TOOL_TIMEOUT_MS` and `PEACEAI_TOOL_MAX_OUTPUT` cap command runtime and output. Commands get a minimal environment, a killed process group on timeout, and (when `prlimit` exists) a 512 MB address-space and 64-process limit.
+- Sources returned by retrieval now include a `section` label taken from Markdown headings when present.

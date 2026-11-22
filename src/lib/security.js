@@ -69,3 +69,12 @@ export function randomToken(bytes = 32) {
 export function sign(value) {
   return crypto.createHmac('sha256', getSecret()).update(value).digest('hex');
 }
+
+// Constant-time comparison for hex-encoded values such as session signatures.
+export function safeEqualHex(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || !/^[0-9a-f]+$/i.test(a) || !/^[0-9a-f]+$/i.test(b)) return false;
+  const left = Buffer.from(a, 'hex');
+  const right = Buffer.from(b, 'hex');
+  if (left.length !== right.length) return false;
+  return crypto.timingSafeEqual(left, right);
+}

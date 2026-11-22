@@ -47,6 +47,11 @@ async function bootstrap() {
       toast(guestErr.message, 'error');
     }
   }
+  const initialPath = currentPath();
+  if (!state.me && (initialPath === 'login' || initialPath === 'register')) {
+    // A hash left over from an earlier visit must not resurrect the login wall.
+    history.replaceState(null, '', '#/app/chat');
+  }
   updateBranding();
   route();
 }
@@ -64,7 +69,12 @@ async function startGuest() {
     toast(err.message, 'error');
   }
   updateBranding();
-  location.replace('#/app/chat');
+  if (currentPath() !== 'app/chat') history.replaceState(null, '', '#/app/chat');
+  route();
+}
+
+function goChat() {
+  if (currentPath() !== 'app/chat') history.replaceState(null, '', '#/app/chat');
   route();
 }
 
@@ -72,30 +82,29 @@ async function route() {
   const seq = ++routeSeq;
   const path = currentPath();
 
+  // Auth screens are opt-in (topbar "Sign in"), never the app's starting page.
+  if (path === 'login' || path === 'register') {
+    if (state.me) { goChat(); return; }
+    state.authMode = path === 'register' ? 'register' : 'login';
+    renderAuth(state.authMode);
+    return;
+  }
+
   if (!state.me && !state.isGuest) {
-    // The root of the app is always chat. Login is opt-in via the Sign in button.
-    if (path === 'login' || path === 'register') {
-      state.authMode = path === 'register' ? 'register' : 'login';
-      renderAuth(state.authMode);
-      return;
-    }
     startGuest();
     return;
   }
 
-  if (!path || path === 'login' || path === 'register' || !path.startsWith('app/')) {
-    location.replace('#/app/chat');
-    return;
-  }
-
-  if (state.isGuest && path !== 'app/chat') {
-    location.replace('#/app/chat');
-    return;
-  }
+  if (!path || !path.startsWith('app/')) { goChat(); return; }
+  if (state.isGuest && path !== 'app/chat') { goChat(); return; }
 
   const view = path.split('/')[1] || 'chat';
   state.route = ['chat', 'admin', 'settings'].includes(view) ? view : 'chat';
-  if (state.route !== view) { location.replace(`#/app/${state.route}`); return; }
+  if (state.route !== view) {
+    history.replaceState(null, '', `#/app/${state.route}`);
+    route();
+    return;
+  }
   renderShell(state.route, seq);
 }
 

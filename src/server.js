@@ -2,7 +2,7 @@ import './env.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { initStore, now } from './lib/store.js';
+import { closeStore, initStore, now } from './lib/store.js';
 import { ApiError } from './lib/http.js';
 import { authRouter, meRouter } from './routes/auth.js';
 import { adminRouter, templatesRouter } from './routes/admin.js';
@@ -15,6 +15,7 @@ import { adminInsightsRouter, feedbackRouter, insightsRouter } from './routes/in
 import { keysRouter } from './routes/keys.js';
 import { mcpRouter } from './routes/mcp.js';
 import { rateLimit } from './lib/ratelimit.js';
+import { sandboxInfo } from './lib/sandbox.js';
 
 const publicDir = path.resolve('src/public');
 
@@ -27,7 +28,7 @@ export function createApp() {
   app.use(express.urlencoded({ extended: true, limit: '4mb' }));
 
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, version: '0.1.0', time: now() });
+    res.json({ ok: true, version: '0.1.0', time: now(), storage: 'sqlite', sandbox: sandboxInfo() });
   });
 
   app.use('/api/auth', rateLimit({ scope: 'auth', limit: 10, windowMs: 60_000 }), authRouter);
@@ -50,8 +51,14 @@ export function createApp() {
     res.status(404).json({ error: { code: 'not_found', message: 'API route not found' } });
   });
 
-  app.use(express.static(publicDir, { index: false, maxAge: '1h' }));
+  // No aggressive caching: frontend changes must appear on a normal refresh.
+  app.use(express.static(publicDir, {
+    index: false,
+    maxAge: 0,
+    setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate'),
+  }));
   app.get(/.*/, (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.sendFile(path.join(publicDir, 'index.html'));
   });
 
@@ -77,6 +84,9 @@ if (isMain) {
     console.log(`  Health check: http://localhost:${port}/api/health\n`);
   });
   for (const signal of ['SIGINT', 'SIGTERM']) {
-    process.on(signal, () => server.close(() => process.exit(0)));
+    process.on(signal, () => server.close(() => {
+      closeStore();
+      process.exit(0);
+    }));
   }
 }

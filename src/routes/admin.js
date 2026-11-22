@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { all, filter, find, id, insert, logAudit, now, remove, update } from '../lib/store.js';
+import { all, chunkCountForDocument, deleteChunks, filter, find, id, insert, logAudit, now, remove, update } from '../lib/store.js';
 import { requireAdmin, publicUser } from '../lib/auth.js';
 import { asyncHandler, clampNumber, fail, optionalString, required } from '../lib/http.js';
 import { encrypt, hashPassword } from '../lib/security.js';
@@ -148,7 +148,7 @@ function publicKnowledgeBase(kb) {
   return {
     ...kb,
     documentCount: documents.length,
-    chunkCount: documents.reduce((sum, doc) => sum + (doc.chunks?.length || 0), 0),
+    chunkCount: documents.reduce((sum, doc) => sum + (doc.chunkCount || 0), 0),
   };
 }
 
@@ -173,6 +173,7 @@ adminRouter.post('/knowledge-bases', (req, res) => {
 adminRouter.delete('/knowledge-bases/:id', (req, res) => {
   const kb = find('knowledgeBases', (k) => k.id === req.params.id && k.tenantId === req.tenant.id);
   if (!kb) fail(404, 'Knowledge base not found', 'not_found');
+  for (const doc of filter('documents', (doc) => doc.knowledgeBaseId === kb.id)) deleteChunks(doc.id);
   remove('documents', (doc) => doc.knowledgeBaseId === kb.id);
   remove('knowledgeBases', (k) => k.id === kb.id);
   for (const agent of filter('agents', (a) => a.tenantId === req.tenant.id)) {
@@ -188,9 +189,9 @@ adminRouter.get('/knowledge-bases/:id/documents', (req, res) => {
   const kb = find('knowledgeBases', (k) => k.id === req.params.id && k.tenantId === req.tenant.id);
   if (!kb) fail(404, 'Knowledge base not found', 'not_found');
   res.json({
-    documents: filter('documents', (doc) => doc.knowledgeBaseId === kb.id).map(({ chunks, ...doc }) => ({
+    documents: filter('documents', (doc) => doc.knowledgeBaseId === kb.id).map((doc) => ({
       ...doc,
-      chunkCount: chunks?.length || 0,
+      chunkCount: doc.chunkCount || 0,
     })),
   });
 });
@@ -210,21 +211,21 @@ adminRouter.post('/knowledge-bases/:id/documents', upload.array('files', 10), as
       name: file.originalname,
       mimeType: file.mimetype,
       size: file.size,
-      chunks: [],
+      chunkCount: 0,
       status: 'processing',
       createdAt: now(),
     };
     insert('documents', document);
     try {
       const text = await extractText(file);
-      document.chunks = await indexDocument(req.tenant.id, kb.id, document, text, embedAgent);
+      document.chunkCount = await indexDocument(req.tenant.id, kb.id, document, text, embedAgent);
       document.status = 'ready';
     } catch (error) {
       document.status = 'error';
       document.error = error.message;
     }
-    update('documents', document.id, { chunks: document.chunks, status: document.status, error: document.error });
-    documents.push({ ...document, chunks: undefined, chunkCount: document.chunks.length });
+    update('documents', document.id, { chunkCount: document.chunkCount, status: document.status, error: document.error });
+    documents.push({ ...document });
   }
   logAudit(req.tenant.id, req.user.id, 'document.upload', { knowledgeBaseId: kb.id, count: documents.length });
   res.status(201).json({ documents });
@@ -233,6 +234,7 @@ adminRouter.post('/knowledge-bases/:id/documents', upload.array('files', 10), as
 adminRouter.delete('/knowledge-bases/:id/documents/:docId', (req, res) => {
   const doc = find('documents', (d) => d.id === req.params.docId && d.knowledgeBaseId === req.params.id && d.tenantId === req.tenant.id);
   if (!doc) fail(404, 'Document not found', 'not_found');
+  deleteChunks(doc.id);
   remove('documents', (d) => d.id === doc.id);
   logAudit(req.tenant.id, req.user.id, 'document.delete', { documentId: doc.id });
   res.json({ ok: true });

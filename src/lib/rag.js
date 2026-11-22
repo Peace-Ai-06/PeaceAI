@@ -1,7 +1,6 @@
-import { filter, find } from './store.js';
+import { filter, find, id, insertChunks, chunksForDocuments } from './store.js';
 import { embed } from './providers.js';
-import { chunkText } from './files.js';
-import { id } from './store.js';
+import { chunkDocument, chunkText } from './files.js';
 
 export function embeddingConfig(tenantId, agent) {
   const provider = agent?.embeddingProviderId ? find('providers', (p) => p.id === agent.embeddingProviderId && p.tenantId === tenantId) : null;
@@ -10,31 +9,40 @@ export function embeddingConfig(tenantId, agent) {
 }
 
 export async function indexDocument(tenantId, kbId, document, text, agent = null) {
-  const chunks = chunkText(text).map((chunk, index) => ({
+  const chunks = chunkDocument(text).map((chunk) => ({
     id: id('chk_'),
-    index,
-    text: chunk,
+    index: chunk.index,
+    text: chunk.text,
+    section: chunk.section || '',
     vector: null,
   }));
-  return attachVectors(tenantId, document, chunks, agent);
+  const prepared = await attachVectors(tenantId, document, chunks, agent);
+  insertChunks(prepared.map((chunk) => ({ ...chunk, tenantId, documentId: document.id, knowledgeBaseId: kbId })));
+  return prepared.length;
 }
 
 export async function indexAttachments(tenantId, agent, attachments = []) {
   const chunks = [];
   for (const attachment of attachments) {
     if (!attachment?.text) continue;
-    for (const [index, text] of chunkText(String(attachment.text)).entries()) {
-      chunks.push({ id: id('chk_'), index, text, vector: null, documentName: attachment.name || 'attachment' });
+    for (const piece of chunkDocument(String(attachment.text))) {
+      chunks.push({
+        id: id('chk_'),
+        index: piece.index,
+        text: piece.text,
+        section: piece.section || '',
+        vector: null,
+        documentName: attachment.name || 'attachment',
+      });
     }
   }
-  const pseudo = { id: id('att_') };
   const config = embeddingConfig(tenantId, agent);
   if (config && chunks.length) {
     try {
       const vectors = await embed(config.provider, config.model, chunks.map((c) => c.text));
       chunks.forEach((chunk, index) => { if (vectors[index]) chunk.vector = vectors[index]; });
     } catch {
-      // Lexical retrieval remains available when embeddings are not configured/reachable.
+      // Lexical retrieval remains available when embeddings are unreachable.
     }
   }
   return chunks;
@@ -84,16 +92,33 @@ function lexicalScore(queryTokens, chunkTokens, idf) {
   return score / Math.max(1, Math.sqrt(chunkTokens.length));
 }
 
+// Second-pass feature scoring. Cheap heuristics that reliably improve the
+// ordering of the hybrid candidates without needing a separate reranker model.
+function rerankScore(query, candidate, queryTokens) {
+  const text = String(candidate.text || '').toLowerCase();
+  const phrase = query.trim().toLowerCase();
+  let score = 0;
+  if (phrase.length >= 4 && text.includes(phrase)) score += 0.5;
+  const unique = new Set(queryTokens);
+  const present = [...unique].filter((token) => text.includes(token)).length;
+  score += (present / Math.max(1, unique.size)) * 0.35;
+  if (candidate.section) {
+    const section = candidate.section.toLowerCase();
+    if ([...unique].some((token) => section.includes(token))) score += 0.15;
+  }
+  return Math.min(1, score);
+}
+
 export async function retrieve(tenantId, agent, query, { topK = 5, extraChunks = [] } = {}) {
   const kbIds = new Set(agent?.knowledgeBaseIds || []);
   const documents = filter('documents', (doc) => doc.tenantId === tenantId && kbIds.has(doc.knowledgeBaseId) && doc.status === 'ready');
-  const candidates = [];
-  for (const doc of documents) {
-    for (const chunk of doc.chunks || []) {
-      candidates.push({ ...chunk, documentName: doc.name, documentId: doc.id, knowledgeBaseId: doc.knowledgeBaseId });
-    }
-  }
-  for (const chunk of extraChunks) candidates.push(chunk);
+  const documentIds = documents.map((doc) => doc.id);
+  const names = new Map(documents.map((doc) => [doc.id, doc.name]));
+  const stored = chunksForDocuments(documentIds).map((chunk) => ({
+    ...chunk,
+    documentName: names.get(chunk.documentId) || 'attachment',
+  }));
+  const candidates = [...stored, ...extraChunks];
   if (!candidates.length) return [];
 
   const qTokens = tokens(query);
@@ -119,8 +144,9 @@ export async function retrieve(tenantId, agent, query, { topK = 5, extraChunks =
     const chunkTokens = tokens(candidate.text);
     const lexical = lexicalScore(qTokens, chunkTokens, idf);
     const semantic = queryVector && candidate.vector ? (cosine(queryVector, candidate.vector) + 1) / 2 : null;
-    const score = semantic === null ? lexical : semantic * 0.75 + Math.min(1, lexical) * 0.25;
-    return { ...candidate, score };
+    const hybrid = semantic === null ? lexical : semantic * 0.65 + Math.min(1, lexical) * 0.35;
+    const rerank = rerankScore(query, candidate, qTokens);
+    return { ...candidate, score: hybrid * 0.7 + rerank * 0.3 };
   });
 
   return scored
@@ -131,8 +157,12 @@ export async function retrieve(tenantId, agent, query, { topK = 5, extraChunks =
       documentName: item.documentName || 'attachment',
       documentId: item.documentId || null,
       chunkIndex: item.index ?? 0,
+      section: item.section || '',
       score: Number(item.score.toFixed(4)),
       preview: item.text.slice(0, 320),
       text: item.text,
     }));
 }
+
+// Kept as a named export for older integrations that used character chunking.
+export const chunkTextForRetrieval = chunkText;
