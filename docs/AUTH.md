@@ -39,8 +39,10 @@ Passwords must be at least 12 characters and contain at least three of:
 lowercase, uppercase, digit, symbol.
 
 The first admin created this way becomes the platform admin, unless a platform
-admin already exists. Restarting the server is not required: the account is
-written to the same SQLite database the server reads.
+admin already exists. The account is written to the same SQLite database the
+server uses. **If PeaceAi is already running, restart it after using this CLI**
+so its in-memory store cache picks up the change (a password reset also revokes
+sessions, which the running process needs to reload to see).
 
 ## Security behavior worth knowing
 

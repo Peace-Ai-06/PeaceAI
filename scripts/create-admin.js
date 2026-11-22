@@ -153,6 +153,7 @@ async function main() {
     remove('sessions', (session) => session.userId === existing.id);
     logAudit(tenant.id, existing.id, 'auth.admin_password_reset', { email });
     console.log(`[PeaceAi] Admin account ${email} updated. All of its sessions were revoked.`);
+    console.log('[PeaceAi] Restart a running PeaceAi server so it reloads this change.');
   } else {
     const user = {
       id: id('usr_'),
@@ -170,6 +171,7 @@ async function main() {
     logAudit(tenant.id, user.id, 'auth.admin_bootstrap', { email });
     console.log(`[PeaceAi] Admin account created for ${email} in workspace "${tenant.name}".`);
     console.log('[PeaceAi] Sign in at http://localhost:3000/#/login');
+    console.log('[PeaceAi] Restart a running PeaceAi server so it reloads this change.');
   }
 }
 
