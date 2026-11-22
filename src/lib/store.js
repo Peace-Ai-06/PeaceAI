@@ -159,9 +159,9 @@ export function ensureGuestDefaults() {
   if (!state.tenants.length) {
     const tenant = {
       id: id('ten_'),
-      name: 'PeaceAi',
+      name: 'PeaceAI',
       slug: 'peaceai',
-      branding: { appName: 'PeaceAi', logoText: 'P', accent: '#8b7bff', tagline: 'Intelligence, in harmony.' },
+      branding: { appName: 'PeaceAI', logoText: 'P', accent: '#6D28FF', tagline: 'Create • Code • Learn • Improve' },
       createdAt: now(),
     };
     state.tenants.push(tenant);
@@ -183,11 +183,11 @@ export function ensureGuestDefaults() {
       agent = {
         id: id('agt_'),
         tenantId: tenant.id,
-        name: 'PeaceAi Assistant',
+        name: 'PeaceAI Assistant',
         description: 'Default guest assistant',
         icon: '✨',
-        accent: '#8b7bff',
-        persona: 'You are PeaceAi, a helpful, precise and friendly assistant. Answer directly, ask clarifying questions when needed, and keep replies clear and useful.',
+        accent: '#6D28FF',
+        persona: 'You are PeaceAI, a helpful, precise and friendly assistant. Answer directly, ask clarifying questions when needed, and keep replies clear and useful.',
         providerId: null,
         model: '',
         embeddingProviderId: null,

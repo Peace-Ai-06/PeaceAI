@@ -3,6 +3,8 @@
 // page is a working chat from the very first request. Admins can switch any agent
 // to a hosted provider (OpenAI/Anthropic/Ollama) later in Admin → Agents.
 
+import { findKnowledge, formatKnowledge } from './local-knowledge.js';
+
 export const LOCAL_MODEL = 'peaceai-local';
 
 const STOPWORDS = new Set(`
@@ -200,11 +202,15 @@ function generalAnswer(raw, lower, messages, sources) {
     return 'I received your attachment. Ask me a question about it and I’ll do my best to answer.';
   }
 
-  const topic = keywords(raw).slice(0, 3).join(' ');
+  const topic = findKnowledge(raw);
+  if (topic) return formatKnowledge(topic);
+
   if (/\b(summar|uploaded|document|knowledge base|book)\b/.test(lower)) {
     return `I don't have matching reference text for that yet. Add a file under **Admin → Knowledge Bases**, attach it to a message, or switch to an agent that has documents linked — then I can answer from it with citations.`;
   }
-  return `${followUp ? 'Following up on our conversation — ' : ''}you asked about **${topic || raw.slice(0, 60)}**. I'm ${appName} Local, running offline inside this workspace. I can give a direct answer, draft or rewrite text, walk through code, and use material you upload.\n\nFor a deeper, model-backed answer, an admin can select a provider and model in **Admin → Agents**. What would you like me to try first?`;
+
+  const subject = raw.length > 90 ? `${raw.slice(0, 90)}…` : raw;
+  return `I don't have a dependable offline answer for **“${subject}”** yet, and I don't want to guess.\n\nHere's how I can help right now:\n\n- Ask a more specific question — for example, “What is photosynthesis?” or “Explain mitosis” — and I'll answer directly from my built-in reference knowledge.\n- Upload your notes under **Admin → Knowledge Bases** (or attach a file) and I'll answer from your material with citations.\n- Have an admin connect OpenAI, Anthropic or Ollama in **Admin → Agents** for a full model-backed answer.\n\nCould you rephrase what you'd like to know${followUp ? ' about that' : ''}?`;
 }
 
 /** Generate a reply without any external service. */

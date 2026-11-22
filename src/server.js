@@ -102,8 +102,8 @@ export function createApp() {
     const agent = agentForShareToken(req.params.token);
     const base = getBaseUrl(req);
     const canonical = `${base}/share/${encodeURIComponent(req.params.token)}`;
-    const title = agent ? `${agent.name} · PeaceAi` : 'Shared agent · PeaceAi';
-    const description = seoDescription(agent?.description, 'Chat with a shared PeaceAi agent.');
+    const title = agent ? `${agent.name} · PeaceAI` : 'Shared agent · PeaceAI';
+    const description = seoDescription(agent?.description, 'Chat with a shared PeaceAI agent.');
     const image = absoluteUrl(req, '/logo.svg');
     const noIndex = !agent || agent.shareEnabled === false;
     const html = `<!doctype html>
@@ -116,7 +116,7 @@ export function createApp() {
   <meta name="robots" content="${noIndex ? 'noindex, nofollow' : 'index, follow'}">
   <link rel="canonical" href="${escapeHtml(canonical)}">
   <meta property="og:type" content="website">
-  <meta property="og:site_name" content="PeaceAi">
+  <meta property="og:site_name" content="PeaceAI">
   <meta property="og:title" content="${escapeHtml(title)}">
   <meta property="og:description" content="${escapeHtml(description)}">
   <meta property="og:url" content="${escapeHtml(canonical)}">
@@ -125,12 +125,12 @@ export function createApp() {
   <meta name="twitter:title" content="${escapeHtml(title)}">
   <meta name="twitter:description" content="${escapeHtml(description)}">
   <meta name="twitter:image" content="${escapeHtml(image)}">
-  <meta name="theme-color" content="#0c1315">
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#090B24">
+  <link rel="icon" href="/brand/favicon.svg" type="image/svg+xml">
 </head>
 <body>
-  <noscript><p>PeaceAi shared chat requires JavaScript.</p></noscript>
-  <script type="module" src="/js/share-page.js?v=1"></script>
+  <noscript><p>PeaceAI shared chat requires JavaScript.</p></noscript>
+  <script type="module" src="/js/share-page.js?v=2"></script>
 </body>
 </html>`;
     res.status(noIndex ? 404 : 200).set('Content-Type', 'text/html; charset=utf-8').set('Cache-Control', 'no-cache, no-store, must-revalidate').send(html);
@@ -161,7 +161,7 @@ export function createApp() {
     const status = error instanceof ApiError ? error.status : badUpload ? (error.code === 'LIMIT_FILE_SIZE' ? 413 : 400) : 500;
     const code = error instanceof ApiError ? error.code : status === 413 ? 'file_too_large' : status === 400 ? 'validation_error' : 'internal_error';
     const message = status === 500 ? 'An unexpected error occurred' : error.message;
-    if (status === 500) console.error('[PeaceAi]', error);
+    if (status === 500) console.error('[PeaceAI]', error);
     res.status(status).json({ error: { code, message } });
   });
   return app;
@@ -173,7 +173,7 @@ if (isMain) {
   const port = Number(process.env.PORT || 3000);
   const host = process.env.HOST || '0.0.0.0';
   const server = app.listen(port, host, () => {
-    console.log(`\n  PeaceAi is running at http://localhost:${port}`);
+    console.log(`\n  PeaceAI is running at http://localhost:${port}`);
     console.log(`  Health check: http://localhost:${port}/api/health\n`);
   });
   for (const signal of ['SIGINT', 'SIGTERM']) {

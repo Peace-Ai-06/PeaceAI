@@ -1,6 +1,6 @@
 export const DEFAULT_THEME = {
   mode: 'dark',
-  accent: '#8b7bff',
+  accent: '#6D28FF',
   font: 'system',
   density: 'comfortable',
   sidebar: 'left',
@@ -8,10 +8,10 @@ export const DEFAULT_THEME = {
 };
 
 export const DEFAULT_BRANDING = {
-  appName: 'PeaceAi',
+  appName: 'PeaceAI',
   logoText: 'P',
-  accent: '#8b7bff',
-  tagline: 'Intelligence, in harmony.',
+  accent: '#6D28FF',
+  tagline: 'Create • Code • Learn • Improve',
 };
 
 const COLOR = /^#[0-9a-fA-F]{3,8}$|^rgb\([\d\s,]+\)$/;

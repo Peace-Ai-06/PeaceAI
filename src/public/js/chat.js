@@ -1,7 +1,7 @@
 // Chat view: agents, conversations, streaming replies, sources and tool approvals.
 import { api, escapeHtml } from './api.js';
 import { state } from './store.js';
-import { icons, renderMarkdown, formatDate, stateBox, errorBox, toast } from './ui.js';
+import { icons, brandLogo, renderMarkdown, formatDate, stateBox, errorBox, toast } from './ui.js';
 
 // Attribute selector helper for arbitrary ids/tokens.
 const attr = (value) => String(value ?? '').replace(/["\\]/g, '\\$&');
@@ -18,8 +18,15 @@ const SUGGESTIONS = [
 function chatSkeleton() {
   return `
     <div class="page-head">
-      <div><h1>Chat</h1><p class="muted">Talk to your agents and review their work.</p></div>
-      <button type="button" class="btn btn-primary" data-action="new-chat">${icons.plus} New chat</button>
+      <div>
+        <span class="eyebrow">Workspace · Conversation</span>
+        <h1>Chat</h1>
+        <p class="muted">A quiet space to think, write and build with your agents.</p>
+      </div>
+      <div class="page-actions">
+        <span class="session-chip"><i></i><span data-session-agent>${escapeHtml(state.guestAgent?.name || state.agents.find((a) => a.id === state.currentAgentId)?.name || 'Assistant')}</span></span>
+        <button type="button" class="btn btn-primary" data-action="new-chat">${icons.plus} New chat</button>
+      </div>
     </div>
     <div class="chat-layout">
       <section class="panel conv-panel" aria-label="Conversations">
@@ -34,10 +41,11 @@ function chatSkeleton() {
           <div class="chips" id="attachment-chips"></div>
           <div class="composer-row">
             <button type="button" class="icon-btn" data-action="attach" title="Attach files" aria-label="Attach files">${icons.attach}</button>
-            <textarea id="composer-input" rows="2" placeholder="Message your agent… (Enter to send, Shift+Enter for a new line)"></textarea>
+            <textarea id="composer-input" rows="2" placeholder="Message your agent…"></textarea>
             <button type="submit" class="btn btn-primary" data-send>${icons.send} <span>Send</span></button>
           </div>
           <input type="file" id="attachment-input" multiple hidden>
+          <div class="composer-hint">Enter to send · Shift + Enter for a new line · Attach files for extra context</div>
         </form>
       </section>
     </div>`;
@@ -45,6 +53,12 @@ function chatSkeleton() {
 
 function current(container) {
   return container?.isConnected && state.route === 'chat';
+}
+
+function updateSessionChip(container) {
+  const el = container?.querySelector('[data-session-agent]');
+  if (!el) return;
+  el.textContent = state.agents.find((a) => a.id === state.currentAgentId)?.name || state.guestAgent?.name || 'Assistant';
 }
 
 export async function renderChat(container, seq) {
@@ -142,6 +156,7 @@ function bindEvents(container) {
     showEmptyChat(container);
     loadConversations(container);
     renderPendingPanel(container);
+    updateSessionChip(container);
   });
 
   // The select is re-created on refresh, so keep a delegated change handler too.
@@ -176,8 +191,9 @@ function bindEvents(container) {
 function renderAgentSelect(container) {
   const slot = container.querySelector('#agent-slot');
   if (!slot) return;
+  updateSessionChip(container);
   if (state.isGuest) {
-    slot.innerHTML = `<div class="mini-empty muted">${state.guestAgent?.icon || '✨'} ${escapeHtml(state.guestAgent?.name || 'PeaceAi Assistant')} <span class="badge">Guest</span></div>`;
+    slot.innerHTML = `<div class="mini-empty muted">${state.guestAgent?.icon || '✨'} ${escapeHtml(state.guestAgent?.name || 'PeaceAI Assistant')} <span class="badge">Guest</span></div>`;
     return;
   }
   const select = state.agents.length
@@ -191,6 +207,7 @@ function renderAgentSelect(container) {
     showEmptyChat(container);
     loadConversations(container);
     renderPendingPanel(container);
+    updateSessionChip(container);
   });
 }
 
@@ -255,9 +272,10 @@ function showEmptyChat(container) {
   if (!messages) return;
   const agent = state.agents.find((a) => a.id === state.currentAgentId);
   messages.innerHTML = `<div class="chat-empty">
-    <div class="empty-glyph logo-glyph"><img src="/logo-mark.svg" alt="" class="empty-logo"></div>
+    ${brandLogo('full', 'welcome-logo', 'PeaceAI — Create, Code, Learn, Improve')}
+    <span class="empty-kicker">${agent ? escapeHtml(agent.name) : 'No agent selected'}</span>
     <h2>${agent ? 'What can I help with?' : 'Start a conversation'}</h2>
-    <p class="muted">${agent ? `You're chatting with ${escapeHtml(agent.name)}. Ask anything, or try one of these:` : 'Select or create an agent to begin.'}</p>
+    <p class="muted">${agent ? 'Ask a question, draft something, or pick a starting point below.' : 'Select or create an agent to begin.'}</p>
     ${agent ? `<div class="suggestions">${SUGGESTIONS.map((item) => `
       <button type="button" class="suggestion" data-action="use-prompt" data-prompt="${escapeHtml(item.prompt)}">
         ${item.icon}<span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.prompt)}</small></span>

@@ -70,7 +70,7 @@ function agentFields(body, tenantId) {
     name: required(body.name, 'agent name'),
     description: optionalString(body.description),
     icon: optionalString(body.icon, '🤖').slice(0, 8),
-    accent: /^#[0-9a-fA-F]{3,8}$/.test(String(body.accent || '')) ? String(body.accent) : '#8b7bff',
+    accent: /^#[0-9a-fA-F]{3,8}$/.test(String(body.accent || '')) ? String(body.accent) : '#6D28FF',
     persona: optionalString(body.persona, 'You are PeaceAi, a helpful assistant.'),
     providerId,
     model: optionalString(body.model),

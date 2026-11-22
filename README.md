@@ -51,7 +51,7 @@ The app opens **directly in chat** as a guest — no login screen blocks the fir
 - The first account registered claims the auto-created guest workspace, so its admin settings apply to guest chat immediately.
 - The home page is **chat, not a login page**. Sign in is optional and only requested after the guest limit (or whenever you click **Sign in**).
 
-> Guest chat works immediately with the built-in **PeaceAi Local** engine — no provider setup required. It is a deterministic offline assistant (not a neural LLM): it answers greetings, common questions, simple math, tool requests, and questions grounded in uploaded files. For deeper reasoning, an admin can edit `PeaceAi Assistant` in **Admin → Agents** and select a hosted/Ollama provider and model.
+> Guest chat works immediately with the built-in **PeaceAi Local** engine — no provider setup required. It is a deterministic offline assistant (not a neural LLM): it answers greetings, common school/general topics (biology, cells, photosynthesis, DNA, gravity, the water cycle, and more), simple math, tool requests, and questions grounded in uploaded files. For an unrecognised question it asks for clarification instead of guessing. For deeper reasoning, an admin can edit `PeaceAi Assistant` in **Admin → Agents** and select a hosted/Ollama provider and model.
 
 ## Admin workflow
 

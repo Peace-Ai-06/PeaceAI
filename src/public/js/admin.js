@@ -42,7 +42,11 @@ const setField = (form, name, value) => {
 export async function renderAdmin(container) {
   container.innerHTML = `
     <div class="page-head">
-      <div><h1>Admin</h1><p class="muted">Configure this workspace and its AI capabilities.</p></div>
+      <div>
+        <span class="eyebrow">Workspace control</span>
+        <h1>Admin</h1>
+        <p class="muted">Providers, knowledge, agents and access — in one place.</p>
+      </div>
       <span class="badge badge-ok">${escapeHtml(state.tenant?.name || 'Workspace')}</span>
     </div>
     <div class="tabs" role="tablist" aria-label="Admin sections">
@@ -132,7 +136,7 @@ async function providersTab(host, container) {
     <div id="provider-form-card" hidden>${card('Provider details', 'API keys are encrypted at rest. Leave blank to keep an existing key.', `
       <form id="provider-form" class="form-grid">
         ${field('Name', input('name', 'text', '', 'required'))}
-        ${field('Kind', `<select name="kind" class="select"><option value="local">PeaceAi Local (built-in, offline)</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="ollama">Ollama</option></select>`)}
+        ${field('Kind', `<select name="kind" class="select"><option value="local">PeaceAI Local (built-in, offline)</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="ollama">Ollama</option></select>`)}
         <div data-provider-connection>
           ${field('Base URL', input('baseUrl', 'url', '', 'placeholder="https://api.openai.com/v1"'))}
           ${field('API key', input('apiKey', 'password', '', 'autocomplete="off" placeholder="Leave blank to keep existing"'))}
@@ -365,7 +369,7 @@ async function agentsTab(host, container) {
         <div class="form-grid">
           ${field('Name', input('name', 'text', '', 'required'))}
           ${field('Icon (emoji or letter)', input('icon', 'text', '🤖', 'maxlength="8"'))}
-          ${field('Accent colour', input('accent', 'color', '#8b7bff'))}
+          ${field('Accent colour', input('accent', 'color', '#6D28FF'))}
           ${field('Visibility', `<select name="visibility" class="select"><option value="tenant">Tenant</option><option value="link">Link</option></select>`)}
         </div>
         ${field('Description', input('description', 'text', ''))}
@@ -401,7 +405,7 @@ async function agentsTab(host, container) {
     form.reset(); formCard.hidden = false;
     const values = {
       name: agent.name || '', description: agent.description || '', icon: agent.icon || '🤖',
-      accent: /^#[0-9a-f]{6}$/i.test(agent.accent || '') ? agent.accent : '#8b7bff',
+      accent: /^#[0-9a-f]{6}$/i.test(agent.accent || '') ? agent.accent : '#6D28FF',
       persona: agent.persona || '', providerId: agent.providerId || '', model: agent.model || '',
       embeddingProviderId: agent.embeddingProviderId || '', embeddingModel: agent.embeddingModel || '',
       visibility: agent.visibility || 'tenant', temperature: agent.generation?.temperature ?? 0.7,
@@ -604,7 +608,7 @@ async function brandingTab(host, container) {
     <div class="form-grid">
       ${field('App name', input('appName', 'text', branding.appName || ''))}
       ${field('Logo text', input('logoText', 'text', branding.logoText || '', 'maxlength="3"'))}
-      ${field('Accent colour', input('accent', 'color', branding.accent || '#8b7bff'))}
+      ${field('Accent colour', input('accent', 'color', branding.accent || '#6D28FF'))}
     </div>
     ${field('Tagline', input('tagline', 'text', branding.tagline || ''))}
     <div class="form-actions"><button type="submit" class="btn btn-primary">Save branding</button></div>
@@ -757,7 +761,7 @@ async function feedbackTab(host, container) {
     ${card('Recent feedback', 'Ratings left by members on assistant replies.', table(['Time', 'Rating', 'Agent', 'Comment'], rows))}`;
 }
 
-// --- PeaceAi API keys --------------------------------------------------------
+// --- PeaceAI API keys --------------------------------------------------------
 async function keysTab(host, container) {
   host.innerHTML = stateBox('loading', 'Loading API keys');
   const res = await api('/api/admin/api-keys');
@@ -792,7 +796,7 @@ async function keysTab(host, container) {
       if (alertBox) {
         alertBox.innerHTML = `<div class="alert alert-success"><div>
           <strong>New API key</strong><p class="mono small">${escapeHtml(created.token)}</p>
-          <small class="muted">Copy this now — PeaceAi stores only a hash.</small></div>
+          <small class="muted">Copy this now — PeaceAI stores only a hash.</small></div>
           <button type="button" class="btn btn-sm" data-action="copy-token">${icons.file} Copy</button></div>`;
         alertBox.querySelector('[data-action="copy-token"]')?.addEventListener('click', async () => {
           try { await navigator.clipboard.writeText(created.token); toast('Token copied', 'success'); }
@@ -981,7 +985,7 @@ async function platformTab(host, container) {
     <td class="muted small">${escapeHtml(typeof (entry.detail || entry.details) === 'object' ? JSON.stringify(entry.detail || entry.details) : (entry.detail || entry.details || ''))}</td></tr>`);
   host.innerHTML = `
     <div class="admin-grid">
-      ${card('Workspaces', 'All tenants on this PeaceAi instance.', table(['Name', 'Slug', 'ID', 'Guest', 'Actions'], rows))}
+      ${card('Workspaces', 'All tenants on this PeaceAI instance.', table(['Name', 'Slug', 'ID', 'Guest', 'Actions'], rows))}
       ${card('New workspace', 'Create an isolated tenant.', `<form id="tenant-form" class="form-stack">
         ${field('Workspace name', input('name', 'text', '', 'required'))}
         <button type="submit" class="btn btn-primary">${icons.plus} Create workspace</button>

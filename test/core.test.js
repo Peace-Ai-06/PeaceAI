@@ -55,7 +55,7 @@ test('theme and branding sanitizers strip unsafe content', () => {
   assert.ok(!theme.customCss.includes('</style>'));
   const branding = sanitizeBranding({ appName: '<img src=x>Peace', accent: 'red' });
   assert.ok(!branding.appName.includes('<'));
-  assert.equal(branding.accent, '#8b7bff');
+  assert.equal(branding.accent, '#6D28FF');
 });
 
 test('built-in local model chats, uses sources, math and tools offline', () => {
@@ -94,6 +94,24 @@ test('built-in local model chats, uses sources, math and tools offline', () => {
   assert.equal(vectors[0].length, 64);
   assert.deepEqual(vectors[0], vectors[1]);
   assert.notDeepEqual(vectors[0], vectors[2]);
+});
+
+test('built-in local model answers common topics and never echoes an unknown question', () => {
+  const biology = generateLocal([{ role: 'user', content: 'assit biology day' }]);
+  assert.match(biology.content, /Biology is the science of life/);
+  assert.doesNotMatch(biology.content, /you asked about/);
+
+  const photosynthesis = generateLocal([{ role: 'user', content: 'What is photosynthesis?' }]);
+  assert.match(photosynthesis.content, /glucose and oxygen/);
+  assert.match(photosynthesis.content, /chloroplasts/);
+
+  const mitosis = generateLocal([{ role: 'user', content: 'Explain mitosis' }]);
+  assert.match(mitosis.content, /two daughter cells/);
+
+  const unknown = generateLocal([{ role: 'user', content: 'why is the sky blue?' }]);
+  assert.match(unknown.content, /don't have a dependable offline answer/);
+  assert.match(unknown.content, /rephrase/);
+  assert.doesNotMatch(unknown.content, /you asked about/);
 });
 
 test('system prompt includes persona, tenant and sources', () => {

@@ -3,38 +3,69 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Shared agent · PeaceAi</title>
+  <meta name="theme-color" content="#090B24">
+  <title>Shared agent · PeaceAI</title>
+  <link rel="icon" href="/brand/favicon.svg" type="image/svg+xml">
   <style>
-    :root { color-scheme: dark; --accent: #8b7bff; }
+    :root { color-scheme: dark; --accent: #6D28FF; --brand-purple: #6D28FF; --brand-violet: #9333EA; --brand-cyan: #00C8FF; --accent-text: var(--accent); --accent-contrast: #ffffff; }
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; background: #0d0f14; color: #e8e9ef; font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
-    .shell { max-width: 780px; margin: 0 auto; padding: 32px 18px 140px; }
-    header { display: flex; gap: 14px; align-items: center; margin-bottom: 24px; }
-    .icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 14px; font-size: 24px; background: color-mix(in srgb, var(--accent) 22%, transparent); }
-    h1 { margin: 0; font-size: 21px; }
-    .brand { color: #9095a6; font-size: 13px; margin-top: 2px; }
-    .card { background: #151821; border: 1px solid #262a36; border-radius: 16px; padding: 22px; }
-    .msg { margin: 0 0 16px; padding: 12px 14px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
-    .user { background: color-mix(in srgb, var(--accent) 18%, transparent); margin-left: 48px; }
-    .assistant { background: #1c202b; margin-right: 48px; }
-    .empty { color: #9095a6; text-align: center; padding: 40px 0; }
-    .composer { position: fixed; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent, #0d0f14 22%); padding: 18px; }
-    .composer form { max-width: 744px; margin: auto; display: flex; gap: 10px; background: #151821; border: 1px solid #2b3040; border-radius: 14px; padding: 8px; }
-    textarea { flex: 1; resize: none; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; padding: 8px; max-height: 140px; }
-    button { border: 0; border-radius: 10px; background: var(--accent); color: #fff; font-weight: 600; padding: 0 20px; cursor: pointer; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      background: radial-gradient(760px 420px at 12% -10%, color-mix(in srgb, var(--brand-purple) 18%, transparent), transparent 70%), #090B24;
+      color: #f4f2ff; font: 14.5px/1.58 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .shell { max-width: 800px; margin: 0 auto; padding: 36px 18px 150px; }
+    .share-head { display: flex; gap: 14px; align-items: center; margin-bottom: 22px; }
+    .icon {
+      width: 50px; height: 50px; display: grid; place-items: center; border-radius: 15px;
+      background: color-mix(in srgb, var(--brand-purple) 18%, #12153A); border: 1px solid color-mix(in srgb, var(--brand-cyan) 26%, #343A72);
+    }
+    .icon img { display: block; width: 40px; height: 40px; }
+    .eyebrow { display: block; color: #9b98c7; font-size: .64rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; margin-bottom: 4px; }
+    h1 { margin: 0; font-size: 1.35rem; letter-spacing: -.03em; }
+    .brand { color: #9b98c7; font-size: .78rem; margin-top: 2px; }
+    .card { background: #12153A; border: 1px solid #343A72; border-radius: 18px; padding: 22px; box-shadow: 0 18px 44px rgba(0,0,0,.3); }
+    .msg { margin: 0 0 16px; padding: 13px 16px; border-radius: 13px; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid #2A2F60; }
+    .user { background: color-mix(in srgb, var(--brand-purple) 16%, #191D4A); margin-left: 52px; border-color: color-mix(in srgb, var(--brand-violet) 32%, #343A72); border-bottom-right-radius: 5px; }
+    .assistant { background: #191D4A; margin-right: 52px; border-bottom-left-radius: 5px; }
+    .empty { color: #9b98c7; text-align: center; padding: 48px 10px; max-width: 460px; margin: 0 auto; }
+    .composer {
+      position: fixed; bottom: 0; left: 0; right: 0; padding: 20px 18px 22px;
+      background: linear-gradient(transparent, #090B24 24%);
+    }
+    .composer form {
+      max-width: 764px; margin: auto; display: flex; gap: 10px; align-items: flex-end;
+      background: #12153A; border: 1px solid #343A72; border-radius: 16px; padding: 8px;
+      box-shadow: 0 12px 34px rgba(0,0,0,.36);
+    }
+    .composer form:focus-within { border-color: color-mix(in srgb, var(--brand-cyan) 45%, #343A72); }
+    textarea { flex: 1; resize: none; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; padding: 9px 10px; max-height: 150px; min-height: 46px; }
+    textarea::placeholder { color: #736c9c; }
+    button {
+      border: 0; border-radius: 12px; color: var(--accent-contrast);
+      background: linear-gradient(120deg, var(--brand-purple), var(--brand-violet) 48%, var(--brand-cyan));
+      font: inherit; font-weight: 700; padding: 11px 22px; cursor: pointer;
+    }
     button:disabled { opacity: .45; cursor: not-allowed; }
-    .meta { display: flex; justify-content: space-between; color: #7f8496; font-size: 12px; margin-top: 12px; }
-    .error { color: #ff9b9b; }
+    .meta { display: flex; justify-content: space-between; color: #9b98c7; font-size: .74rem; margin-top: 12px; }
+    .error { color: #ff7d9a; }
+    @media (max-width: 560px) {
+      .shell { padding-top: 24px; }
+      .user { margin-left: 12px; }
+      .assistant { margin-right: 12px; }
+      .card { padding: 16px; }
+    }
   </style>
 </head>
 <body>
   <div class="shell">
-    <header>
-      <div class="icon" id="icon">✨</div>
-      <div><h1 id="title">Loading…</h1><div class="brand" id="brand"></div></div>
+    <header class="share-head">
+      <div class="icon"><img src="/brand/peaceai-emblem.svg" alt="PeaceAI"></div>
+      <div><span class="eyebrow">Shared agent</span><h1 id="title">Loading…</h1><div class="brand" id="brand"></div></div>
     </header>
     <div class="card" id="thread"><div class="empty">Loading shared agent…</div></div>
-    <div class="meta"><span id="quota"></span><span>Powered by PeaceAi</span></div>
+    <div class="meta"><span id="quota"></span><span>Powered by PeaceAI</span></div>
   </div>
   <div class="composer">
     <form id="form">
@@ -67,7 +98,7 @@
     fetch(`/api/share/${encodeURIComponent(token)}`).then((r) => r.json()).then((data) => {
       if (!data.agent) { thread.innerHTML = `<div class="empty error">${escapeHtml(data.error?.message || 'This link is not available.')}</div>`; return; }
       info = data.agent;
-      document.title = `${info.name} · PeaceAi`;
+      document.title = `${info.name} · PeaceAI`;
       document.getElementById('title').textContent = `${info.icon || ''} ${info.name}`.trim();
       document.getElementById('brand').textContent = info.tenant.appName;
       if (info.accent) document.documentElement.style.setProperty('--accent', info.accent);
@@ -94,7 +125,7 @@
           add('assistant', data.error?.message || 'Something went wrong.');
           if (data.error?.code === 'share_limit_reached') {
             input.disabled = true;
-            add('assistant', 'Sign up for PeaceAi to keep chatting with your own agents.');
+            add('assistant', 'Sign up for PeaceAI to keep chatting with your own agents.');
           }
         } else {
           add('assistant', data.reply || '(no reply)');

@@ -10,12 +10,12 @@ function themeFormHtml(theme) {
     <form id="theme-form" class="form-stack">
       <div class="form-grid">
         <label class="field"><span>Appearance</span>${select('mode', [['dark', 'Dark'], ['light', 'Light']])}</label>
-        <label class="field"><span>Accent colour</span><input name="accent" id="theme-accent" type="color" value="${escapeHtml(/^#[0-9a-f]{6}$/i.test(theme.accent || '') ? theme.accent : '#8b7bff')}"></label>
+        <label class="field"><span>Accent colour</span><input name="accent" id="theme-accent" type="color" value="${escapeHtml(/^#[0-9a-f]{6}$/i.test(theme.accent || '') ? theme.accent : '#6D28FF')}"></label>
         <label class="field"><span>Font</span>${select('font', [['system', 'System UI'], ['serif', 'Serif'], ['mono', 'Monospace'], ['rounded', 'Rounded']])}</label>
         <label class="field"><span>Density</span>${select('density', [['comfortable', 'Comfortable'], ['compact', 'Compact']])}</label>
         <label class="field"><span>Sidebar</span>${select('sidebar', [['left', 'Left'], ['right', 'Right']])}</label>
       </div>
-      <label class="field"><span>Custom CSS</span><textarea name="customCss" id="theme-customCss" rows="7" placeholder="/* Scoped to PeaceAi's custom layer */">${escapeHtml(theme.customCss || '')}</textarea>
+      <label class="field"><span>Custom CSS</span><textarea name="customCss" id="theme-customCss" rows="7" placeholder="/* Scoped to PeaceAI's custom layer */">${escapeHtml(theme.customCss || '')}</textarea>
         <small class="muted">Changes preview live and are saved when you click Save theme.</small></label>
       <div class="form-actions"><button type="submit" class="btn btn-primary">Save theme</button><button type="button" class="btn" data-action="reset-theme">Discard changes</button></div>
     </form>`;
@@ -25,7 +25,13 @@ export async function renderSettings(container) {
   const user = state.me || {};
   const theme = getTheme();
   container.innerHTML = `
-    <div class="page-head"><div><h1>Settings</h1><p class="muted">Your profile and workspace appearance.</p></div></div>
+    <div class="page-head">
+      <div>
+        <span class="eyebrow">Personal preferences</span>
+        <h1>Settings</h1>
+        <p class="muted">Your profile, security and workspace appearance.</p>
+      </div>
+    </div>
     <div class="settings-grid">
       <section class="panel admin-card">
         <div class="card-head"><div><h2>Profile</h2><p class="muted">Your account details.</p></div></div>
@@ -47,7 +53,7 @@ export async function renderSettings(container) {
         </form>
       </section>
       <section class="panel admin-card settings-wide">
-        <div class="card-head"><div><h2>Theme</h2><p class="muted">Tailor colours, typography and layout to your liking.</p></div>${icons.settings}</div>
+        <div class="card-head"><div><h2>Theme</h2><p class="muted">Tailor colours, typography and layout to your liking.</p></div><span class="stat-icon">${icons.settings}</span></div>
         <div id="theme-alert"></div>
         <div id="theme-form-slot">${themeFormHtml(theme)}</div>
       </section>

@@ -97,7 +97,7 @@ test('shareable agent links expose a public chat with a hard message quota', asy
   const visitor = client(base);
   const info = await visitor.request('GET', `/api/share/${shared.data.token}`);
   assert.equal(info.status, 200);
-  assert.equal(info.data.agent.name, 'PeaceAi Assistant');
+  assert.equal(info.data.agent.name, 'PeaceAI Assistant');
   assert.equal(info.data.agent.limits.limit, 2);
   assert.ok(!JSON.stringify(info.data).includes('persona'));
 

@@ -31,7 +31,34 @@ export const icons = {
   workflow: svg('<rect x="3" y="4" width="7" height="6" rx="2"/><rect x="14" y="14" width="7" height="6" rx="2"/><path d="M10 7h3a3 3 0 0 1 3 3v4"/>'),
   share: svg('<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 10.6 6.8-4M8.6 13.4l6.8 4"/>'),
   globe: svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>'),
+  user: svg('<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'),
 };
+
+// Single source of truth for brand artwork. Screens request a variant by name,
+// so the underlying SVG files can be replaced without touching view templates.
+const BRAND_ASSETS = {
+  emblem: 'peaceai-emblem.svg',
+  compact: 'peaceai-logo-compact.svg',
+  full: 'peaceai-logo-full.svg',
+  mono: 'peaceai-logo-mono.svg',
+};
+
+// Wordmark variants with darker lettering for light surfaces.
+const BRAND_LIGHT_ASSETS = {
+  compact: 'peaceai-logo-compact-light.svg',
+  full: 'peaceai-logo-full-light.svg',
+};
+
+export function brandLogo(variant = 'compact', className = '', alt = 'PeaceAI') {
+  const key = BRAND_ASSETS[variant] ? variant : 'compact';
+  const classes = className ? ` ${className}` : '';
+  const label = escapeHtml(alt);
+  const dark = `<img src="/brand/${BRAND_ASSETS[key]}" class="brand-dark${classes}" alt="${label}">`;
+  const lightFile = BRAND_LIGHT_ASSETS[key];
+  return lightFile
+    ? `${dark}<img src="/brand/${lightFile}" class="brand-light${classes}" alt="${label}">`
+    : dark;
+}
 
 // Apply theme variables/attributes, including the user's scoped custom CSS.
 export function applyTheme() {
@@ -41,9 +68,8 @@ export function applyTheme() {
   root.dataset.density = t.density === 'compact' ? 'compact' : 'comfortable';
   root.dataset.font = t.font || 'system';
   root.dataset.sidebar = t.sidebar === 'right' ? 'right' : 'left';
-  const accent = t.accent || '#8b7bff';
+  const accent = t.accent || '#6D28FF';
   root.style.setProperty('--accent', accent);
-  root.style.setProperty('--accent-2', `color-mix(in srgb, ${accent} 55%, #39d7c4)`);
 
   let style = document.getElementById('user-css');
   if (!style) {
@@ -58,7 +84,7 @@ export function applyTheme() {
 // Keep top bar / document title in sync after branding updates.
 export function updateBranding() {
   const branding = state.tenant?.branding || {};
-  const name = branding.appName || 'PeaceAi';
+  const name = branding.appName || 'PeaceAI';
   document.title = name;
   document.querySelectorAll('[data-app-name]').forEach((el) => { el.textContent = name; });
   document.querySelectorAll('[data-logo-text]').forEach((el) => { el.textContent = branding.logoText || name.slice(0, 1).toUpperCase() || 'P'; });

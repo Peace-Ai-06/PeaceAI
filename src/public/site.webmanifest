@@ -1,17 +1,23 @@
 {
-  "name": "PeaceAi",
-  "short_name": "PeaceAi",
-  "description": "A calm, private workspace for agents, documents and code.",
+  "name": "PeaceAI — Private AI Workspace",
+  "short_name": "PeaceAI",
+  "description": "Create • Code • Learn • Improve. A private workspace for agents, documents and code.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0c1315",
-  "theme_color": "#0c1315",
+  "background_color": "#090B24",
+  "theme_color": "#090B24",
   "icons": [
     {
-      "src": "/favicon.svg",
+      "src": "/brand/peaceai-emblem.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
+    },
+    {
+      "src": "/brand/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
     }
   ]
 }
