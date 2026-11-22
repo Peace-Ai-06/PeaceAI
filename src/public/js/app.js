@@ -3,7 +3,7 @@ import { api, escapeHtml } from './api.js';
 import { state, setSession, setGuestSession, clearSession } from './store.js';
 import { applyTheme, icons, toast, updateBranding } from './ui.js';
 import { renderChat } from './chat.js';
-import { renderAdmin } from './admin.js';
+import { ADMIN_NAV, renderAdmin } from './admin.js';
 import { renderSettings } from './settings.js';
 
 const root = document.getElementById('app');
@@ -100,8 +100,15 @@ async function route() {
   if (!path || !path.startsWith('app/')) { goChat(); return; }
   if (state.isGuest && path !== 'app/chat') { goChat(); return; }
 
-  const view = path.split('/')[1] || 'chat';
+  const parts = path.split('/');
+  const view = parts[1] || 'chat';
   state.route = ['chat', 'admin', 'settings'].includes(view) ? view : 'chat';
+  if (view === 'admin') {
+    const allowed = ADMIN_NAV.filter((item) => !item.platformOnly || state.me?.isPlatformAdmin).map((item) => item.id);
+    state.adminTab = allowed.includes(parts[2]) ? parts[2] : 'overview';
+    const expected = `#/app/admin/${state.adminTab}`;
+    if (location.hash !== expected) history.replaceState(null, '', expected);
+  }
   if (state.route !== view) {
     history.replaceState(null, '', `#/app/${state.route}`);
     route();
@@ -313,7 +320,12 @@ function renderShell(view, seq) {
       <div class="sidebar-section-label">Workspace</div>
       <nav class="nav" aria-label="Main navigation">
         ${navItem('chat', 'Chat', icons.chat)}
-        ${(!state.isGuest && user.role === 'admin') ? navItem('admin', 'Admin', icons.admin) : ''}
+        ${(!state.isGuest && user.role === 'admin') ? `
+          <a href="#/app/admin/${state.adminTab}" class="nav-item ${view === 'admin' ? 'active' : ''}" data-view="admin">${icons.admin}<span>Admin</span></a>
+          <div class="nav-sub" aria-label="Admin sections">
+            ${ADMIN_NAV.filter((item) => !item.platformOnly || user.isPlatformAdmin).map((item) => `
+              <a href="#/app/admin/${item.id}" class="nav-sub-item ${view === 'admin' && state.adminTab === item.id ? 'active' : ''}" data-view="admin" title="${escapeHtml(item.label)}">${item.icon}<span>${escapeHtml(item.label)}</span></a>`).join('')}
+          </div>` : ''}
         ${state.isGuest ? '' : navItem('settings', 'Settings', icons.settings)}
       </nav>
       <div class="sidebar-footer">

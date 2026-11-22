@@ -233,6 +233,13 @@ html[data-sidebar="right"] .sidebar { border-right: 0; border-left: 1px solid va
 .nav-item:hover { background: var(--surface-2); color: var(--text); }
 .nav-item.active { background: linear-gradient(100deg, color-mix(in srgb, var(--accent) 22%, var(--surface)), color-mix(in srgb, var(--accent-2) 10%, var(--surface))); color: color-mix(in srgb, var(--accent) 65%, var(--text)); }
 .nav-item.active::before { content: ''; position: absolute; left: 0; top: 25%; bottom: 25%; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent); }
+.nav-sub { display: flex; flex-direction: column; gap: 2px; margin: 3px 0 6px 17px; padding: 3px 0 3px 9px; border-left: 1px solid var(--border-soft); }
+.nav-sub-item { position: relative; display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 9px; color: var(--muted); text-decoration: none; font-size: .8rem; font-weight: 550; transition: background .15s, color .15s; }
+.nav-sub-item svg { width: 15px; height: 15px; flex: 0 0 auto; }
+.nav-sub-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-sub-item:hover { background: var(--surface-2); color: var(--text); }
+.nav-sub-item.active { background: color-mix(in srgb, var(--accent) 15%, transparent); color: color-mix(in srgb, var(--accent) 70%, var(--text)); }
+.nav-sub-item.active::before { content: ''; position: absolute; left: -10px; top: 20%; bottom: 20%; width: 2px; border-radius: 2px; background: var(--accent); }
 .sidebar-footer { margin-top: auto; padding: 13px 11px 4px; border-top: 1px solid var(--border-soft); font-size: .83rem; }
 .sidebar-tenant { font-weight: 700; margin-bottom: 2px; }
 .view { grid-area: main; min-width: 0; padding: 24px 28px; }

@@ -5,7 +5,7 @@ import { requireAdmin, publicUser } from '../lib/auth.js';
 import { asyncHandler, clampNumber, fail, optionalString, required } from '../lib/http.js';
 import { encrypt, hashPassword } from '../lib/security.js';
 import { sanitizeBranding } from '../lib/theme.js';
-import { listModels } from '../lib/providers.js';
+import { listModels, providerApiKey } from '../lib/providers.js';
 import { extractText, isSupportedFile } from '../lib/files.js';
 import { indexDocument } from '../lib/rag.js';
 import { AGENT_TEMPLATES } from '../lib/agents.js';
@@ -145,6 +145,42 @@ adminRouter.post('/providers/:id/test', asyncHandler(async (req, res) => {
   if (!provider) fail(404, 'Provider not found', 'not_found');
   const models = await listModels(provider);
   res.json({ ok: true, models });
+}));
+
+// Admin-only reveal. The key is decrypted on demand, never stored in browser state,
+// and every reveal is written to the audit log.
+adminRouter.get('/providers/:id/key', (req, res) => {
+  const provider = find('providers', (p) => p.id === req.params.id && p.tenantId === req.tenant.id);
+  if (!provider) fail(404, 'Provider not found', 'not_found');
+  logAudit(req.tenant.id, req.user.id, 'provider.key_revealed', { providerId: provider.id });
+  res.json({ apiKey: providerApiKey(provider), providerId: provider.id });
+});
+
+// Uses each provider's stored key server-side to discover models/resources.
+adminRouter.get('/models/catalog', asyncHandler(async (req, res) => {
+  const providers = filter('providers', (p) => p.tenantId === req.tenant.id && p.enabled !== false);
+  const catalog = await Promise.all(providers.map(async (provider) => {
+    try {
+      const models = await listModels(provider);
+      return {
+        providerId: provider.id,
+        providerName: provider.name,
+        kind: provider.kind,
+        ok: true,
+        models: models.slice(0, 300),
+      };
+    } catch (error) {
+      return {
+        providerId: provider.id,
+        providerName: provider.name,
+        kind: provider.kind,
+        ok: false,
+        error: error.message,
+        models: [],
+      };
+    }
+  }));
+  res.json({ catalog, fetchedAt: now() });
 }));
 
 /* ------------------------------ knowledge bases ----------------------------- */

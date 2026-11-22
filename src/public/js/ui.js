@@ -25,6 +25,12 @@ export const icons = {
   refresh: svg('<path d="M20 11A8 8 0 1 0 18 17"/><path d="M20 4v7h-7"/>'),
   file: svg('<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/>'),
   spark: svg('<path d="M12 3v4m0 10v4M3 12h4m10 0h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/><circle cx="12" cy="12" r="2.5"/>'),
+  key: svg('<circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 8-8 2.2 2.2-2 2 1.5 1.5-2.2 2.2-1.5-1.5-2.2 2.2"/>'),
+  chart: svg('<path d="M4 20h16M7 16v-5M12 16V5M17 16v-8"/>'),
+  feedback: svg('<path d="M20 15a3 3 0 0 1-3 3H8l-4 3V6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3z"/><path d="M8 9h8M8 13h5"/>'),
+  workflow: svg('<rect x="3" y="4" width="7" height="6" rx="2"/><rect x="14" y="14" width="7" height="6" rx="2"/><path d="M10 7h3a3 3 0 0 1 3 3v4"/>'),
+  share: svg('<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 10.6 6.8-4M8.6 13.4l6.8 4"/>'),
+  globe: svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>'),
 };
 
 // Apply theme variables/attributes, including the user's scoped custom CSS.

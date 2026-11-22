@@ -4,10 +4,26 @@ import { state } from './store.js';
 import { icons, formatDate, formatBytes, stateBox, errorBox, toast, updateBranding } from './ui.js';
 
 const TOOL_IDS = ['list_files', 'read_file', 'search_files', 'write_file', 'edit_file', 'run_command'];
-const TABS = [
-  ['overview', 'Overview'], ['providers', 'Providers'], ['knowledge', 'Knowledge Bases'],
-  ['agents', 'Agents'], ['guest', 'Guest Access'], ['users', 'Users'], ['branding', 'Branding'], ['audit', 'Audit'],
+export const ADMIN_NAV = [
+  { id: 'overview', label: 'Overview', icon: icons.admin },
+  { id: 'providers', label: 'Providers', icon: icons.spark },
+  { id: 'catalog', label: 'Model catalog', icon: icons.refresh },
+  { id: 'knowledge', label: 'Knowledge bases', icon: icons.file },
+  { id: 'agents', label: 'Agents', icon: icons.chat },
+  { id: 'guest', label: 'Guest access', icon: icons.check },
+  { id: 'users', label: 'Users', icon: icons.check },
+  { id: 'usage', label: 'Usage & limits', icon: icons.chart },
+  { id: 'feedback', label: 'Feedback', icon: icons.feedback },
+  { id: 'keys', label: 'API keys', icon: icons.key },
+  { id: 'workflows', label: 'Workflows', icon: icons.workflow },
+  { id: 'shares', label: 'Shares', icon: icons.share },
+  { id: 'branding', label: 'Branding', icon: icons.settings },
+  { id: 'audit', label: 'Audit', icon: icons.file },
+  { id: 'platform', label: 'Platform', icon: icons.globe, platformOnly: true },
 ];
+
+const visibleNav = () => ADMIN_NAV.filter((item) => !item.platformOnly || state.me?.isPlatformAdmin);
+const TABS = () => visibleNav().map(({ id, label }) => [id, label]);
 
 const isCurrent = (container) => container?.isConnected && state.route === 'admin';
 const input = (name, type = 'text', value = '', extra = '') =>
@@ -30,7 +46,7 @@ export async function renderAdmin(container) {
       <span class="badge badge-ok">${escapeHtml(state.tenant?.name || 'Workspace')}</span>
     </div>
     <div class="tabs" role="tablist" aria-label="Admin sections">
-      ${TABS.map(([id, label]) => `<button type="button" role="tab" class="tab ${state.adminTab === id ? 'active' : ''}" data-tab="${id}" aria-selected="${state.adminTab === id}">${escapeHtml(label)}</button>`).join('')}
+      ${TABS().map(([id, label]) => `<button type="button" role="tab" class="tab ${state.adminTab === id ? 'active' : ''}" data-tab="${id}" aria-selected="${state.adminTab === id}">${escapeHtml(label)}</button>`).join('')}
     </div>
     <div id="admin-content">${stateBox('loading', 'Loading admin section')}</div>`;
 
@@ -38,6 +54,7 @@ export async function renderAdmin(container) {
     button.addEventListener('click', () => {
       if (state.adminTab === button.dataset.tab) return;
       state.adminTab = button.dataset.tab;
+      history.replaceState(null, '', `#/app/admin/${state.adminTab}`);
       renderAdmin(container);
     });
   });
@@ -50,11 +67,18 @@ async function loadTab(container, tab) {
   try {
     if (tab === 'overview') await overviewTab(host, container);
     else if (tab === 'providers') await providersTab(host, container);
+    else if (tab === 'catalog') await catalogTab(host, container);
     else if (tab === 'knowledge') await knowledgeTab(host, container);
     else if (tab === 'agents') await agentsTab(host, container);
     else if (tab === 'guest') await guestTab(host, container);
     else if (tab === 'users') await usersTab(host, container);
+    else if (tab === 'usage') await usageTab(host, container);
+    else if (tab === 'feedback') await feedbackTab(host, container);
+    else if (tab === 'keys') await keysTab(host, container);
+    else if (tab === 'workflows') await workflowsTab(host, container);
+    else if (tab === 'shares') await sharesTab(host, container);
     else if (tab === 'branding') await brandingTab(host, container);
+    else if (tab === 'platform') await platformTab(host, container);
     else await auditTab(host, container);
   } catch (err) {
     if (isCurrent(container)) host.innerHTML = errorBox(err, 'retry-admin');
@@ -91,7 +115,7 @@ async function providersTab(host, container) {
   const providers = res.providers || [];
   host.innerHTML = `
     <div id="provider-alert"></div>
-    ${card('Model providers', 'Connections used by your agents.', table(
+    ${card('Model providers', 'Connections used by your agents. Saved keys stay encrypted on the server and are only decrypted for model fetches or an explicit admin reveal.', table(
       ['Name', 'Kind', 'Base URL', 'API key', 'Enabled', 'Actions'],
       providers.map((p) => `<tr>
         <td><strong>${escapeHtml(p.name)}</strong>${p.isBuiltIn ? ' <span class="badge">Built-in</span>' : ''}</td><td>${escapeHtml(p.kind)}</td>
@@ -100,11 +124,12 @@ async function providersTab(host, container) {
         <td><span class="badge ${p.enabled ? 'badge-ok' : ''}">${p.enabled ? 'Enabled' : 'Disabled'}</span></td>
         <td class="actions-cell">
           <button type="button" class="btn btn-sm" data-action="test-provider" data-id="${escapeHtml(p.id)}">${icons.test} Test</button>
+          ${p.hasApiKey ? `<button type="button" class="btn btn-sm" data-action="reveal-key" data-id="${escapeHtml(p.id)}">${icons.key} Read key</button>` : ''}
           <button type="button" class="btn btn-sm" data-action="edit-provider" data-id="${escapeHtml(p.id)}">${icons.edit} Edit</button>
           ${p.isBuiltIn ? '' : `<button type="button" class="btn btn-sm btn-danger" data-action="delete-provider" data-id="${escapeHtml(p.id)}">${icons.trash}</button>`}
         </td></tr>`)),
       `<button type="button" class="btn btn-sm btn-primary" data-action="show-provider-form">${icons.plus} Add provider</button>`)}
-    <div id="provider-form-card" hidden>${card('Provider details', 'API keys are stored encrypted and never shown again.', `
+    <div id="provider-form-card" hidden>${card('Provider details', 'API keys are encrypted at rest. Leave blank to keep an existing key.', `
       <form id="provider-form" class="form-grid">
         ${field('Name', input('name', 'text', '', 'required'))}
         ${field('Kind', `<select name="kind" class="select"><option value="local">PeaceAi Local (built-in, offline)</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="ollama">Ollama</option></select>`)}
@@ -165,6 +190,31 @@ async function providersTab(host, container) {
         try {
           const res = await api(`/api/admin/providers/${encodeURIComponent(id)}/test`, { method: 'POST' });
           host.querySelector('#provider-alert').innerHTML = `<div class="alert alert-success">${res.ok === false ? 'Connection failed' : 'Connection successful'}. Models: ${escapeHtml((res.models || []).join(', ') || 'none reported')}</div>`;
+        } catch (err) {
+          host.querySelector('#provider-alert').innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
+        } finally { button.disabled = false; }
+      });
+    } else if (action === 'reveal-key') {
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+          const res = await api(`/api/admin/providers/${encodeURIComponent(id)}/key`);
+          const alertBox = host.querySelector('#provider-alert');
+          alertBox.innerHTML = `<div class="alert alert-info">
+            <div><strong>API key revealed</strong>
+              <p class="mono small">${escapeHtml(res.apiKey || '(no key stored)')}</p>
+              <small class="muted">This reveal was recorded in the audit log.</small>
+            </div>
+            <div class="form-actions">
+              <button type="button" class="btn btn-sm" data-action="copy-key">${icons.file} Copy</button>
+              <button type="button" class="btn btn-sm" data-action="hide-key">${icons.close} Hide</button>
+            </div>
+          </div>`;
+          alertBox.querySelector('[data-action="copy-key"]')?.addEventListener('click', async () => {
+            try { await navigator.clipboard.writeText(res.apiKey || ''); toast('API key copied', 'success'); }
+            catch { toast('Clipboard unavailable — select the key manually.', 'error'); }
+          });
+          alertBox.querySelector('[data-action="hide-key"]')?.addEventListener('click', () => { alertBox.innerHTML = ''; });
         } catch (err) {
           host.querySelector('#provider-alert').innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
         } finally { button.disabled = false; }
@@ -587,4 +637,301 @@ async function auditTab(host, container) {
       <td><code>${escapeHtml(action)}</code></td>
       <td class="muted small">${escapeHtml(typeof details === 'object' ? JSON.stringify(details) : details)}</td></tr>`;
   })));
+}
+
+// --- Model catalog -----------------------------------------------------------
+async function catalogTab(host, container) {
+  host.innerHTML = stateBox('loading', 'Fetching models from your providers');
+  const res = await api('/api/admin/models/catalog');
+  if (!isCurrent(container)) return;
+  const catalog = res.catalog || [];
+  const rows = [];
+  for (const entry of catalog) {
+    if (!entry.models.length) {
+      rows.push(`<tr><td><strong>${escapeHtml(entry.providerName)}</strong></td><td>${escapeHtml(entry.kind)}</td>
+        <td class="muted">—</td><td><span class="badge badge-warn">${escapeHtml(entry.ok ? 'No models reported' : entry.error || 'Failed')}</span></td></tr>`);
+      continue;
+    }
+    for (const model of entry.models) {
+      rows.push(`<tr><td><strong>${escapeHtml(entry.providerName)}</strong></td><td>${escapeHtml(entry.kind)}</td>
+        <td class="mono">${escapeHtml(model)}</td><td><span class="badge badge-ok">Available</span></td></tr>`);
+    }
+  }
+  host.innerHTML = card(
+    'Model catalog',
+    `Fetched ${escapeHtml(formatDate(res.fetchedAt))} server-side using each provider's saved key. Keys are never sent to the browser.`,
+    table(['Provider', 'Kind', 'Model / resource', 'Status'], rows),
+    `<div class="form-actions"><button type="button" class="btn btn-sm" data-action="refresh-catalog">${icons.refresh} Refresh</button>
+      <button type="button" class="btn btn-sm btn-primary" data-action="catalog-to-agents">${icons.chat} Configure agents</button></div>`,
+  );
+  host.querySelector('[data-action="refresh-catalog"]')?.addEventListener('click', () => catalogTab(host, container));
+  host.querySelector('[data-action="catalog-to-agents"]')?.addEventListener('click', () => { location.hash = '#/app/admin/agents'; });
+}
+
+// --- Usage & limits ----------------------------------------------------------
+async function usageTab(host, container) {
+  host.innerHTML = stateBox('loading', 'Loading usage');
+  const [usage, overview] = await Promise.all([api('/api/admin/usage'), api('/api/admin/overview')]);
+  if (!isCurrent(container)) return;
+  const totals = usage.totals || {};
+  const limits = overview.tenant?.limits || {};
+  const modelRows = Object.entries(usage.byModel || {}).map(([model, value]) => `<tr>
+    <td class="mono">${escapeHtml(model)}</td><td>${escapeHtml(value.requests ?? 0)}</td>
+    <td>${Number(value.totalTokens || 0).toLocaleString()}</td><td>$${escapeHtml(value.cost ?? 0)}</td></tr>`);
+  host.innerHTML = `
+    <div class="stat-grid">
+      ${[['Requests', totals.requests ?? 0, icons.chat], ['Tokens', Number(totals.totalTokens || 0).toLocaleString(), icons.spark], ['Estimated cost', `$${totals.cost ?? 0}`, icons.chart]].map(([label, value, icon]) => `
+        <div class="stat-card card"><div class="stat-icon">${icon}</div><div class="stat-value">${escapeHtml(value)}</div><div class="muted">${escapeHtml(label)}</div></div>`).join('')}
+    </div>
+    <div class="admin-grid">
+      ${card('Monthly limits', 'Leave a field blank for no limit.', `<form id="limits-form" class="form-grid">
+        ${field('Monthly tokens', input('monthlyTokens', 'number', limits.monthlyTokens ?? '', 'min="0" step="1"'))}
+        ${field('Monthly cost (USD)', input('monthlyCost', 'number', limits.monthlyCost ?? '', 'min="0" step="0.01"'))}
+        <div class="form-actions"><button type="submit" class="btn btn-primary">Save limits</button></div>
+      </form>`)}
+      ${card('Usage by model', 'Current billing period.', table(['Model', 'Requests', 'Tokens', 'Est. cost'], modelRows))}
+    </div>`;
+  host.querySelector('#limits-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    try {
+      const saved = await api('/api/admin/limits', { method: 'PUT', body: {
+        monthlyTokens: form.elements.monthlyTokens.value === '' ? null : Number(form.elements.monthlyTokens.value),
+        monthlyCost: form.elements.monthlyCost.value === '' ? null : Number(form.elements.monthlyCost.value),
+      } });
+      state.tenant = saved.tenant || state.tenant;
+      toast('Limits saved', 'success');
+    } catch (err) { toast(err.message, 'error'); }
+  });
+}
+
+// --- Feedback ----------------------------------------------------------------
+async function feedbackTab(host, container) {
+  host.innerHTML = stateBox('loading', 'Loading feedback');
+  const [summary, res] = await Promise.all([api('/api/admin/feedback/summary'), api('/api/admin/feedback')]);
+  if (!isCurrent(container)) return;
+  const rows = (res.feedback || []).map((item) => `<tr>
+    <td class="muted">${escapeHtml(formatDate(item.ts))}</td>
+    <td><span class="badge ${item.rating >= 4 ? 'badge-ok' : item.rating <= 2 ? 'badge-danger' : ''}">${escapeHtml(item.rating)} / 5</span></td>
+    <td class="mono small">${escapeHtml(item.agentId || '—')}</td>
+    <td>${escapeHtml(item.comment || '—')}</td></tr>`);
+  host.innerHTML = `
+    <div class="stat-grid">
+      ${[['Average rating', summary.average ?? 0, icons.chart], ['Positive', summary.positive ?? 0, icons.check], ['Negative', summary.negative ?? 0, icons.feedback], ['Total', summary.total ?? 0, icons.chat]].map(([label, value, icon]) => `
+        <div class="stat-card card"><div class="stat-icon">${icon}</div><div class="stat-value">${escapeHtml(value)}</div><div class="muted">${escapeHtml(label)}</div></div>`).join('')}
+    </div>
+    ${card('Recent feedback', 'Ratings left by members on assistant replies.', table(['Time', 'Rating', 'Agent', 'Comment'], rows))}`;
+}
+
+// --- PeaceAi API keys --------------------------------------------------------
+async function keysTab(host, container) {
+  host.innerHTML = stateBox('loading', 'Loading API keys');
+  const res = await api('/api/admin/api-keys');
+  if (!isCurrent(container)) return;
+  const scopes = res.scopes || [];
+  const rows = (res.apiKeys || []).map((key) => `<tr>
+    <td><strong>${escapeHtml(key.name)}</strong></td><td class="mono">${escapeHtml(key.prefix || '')}…${escapeHtml(key.last4 || '')}</td>
+    <td>${(key.scopes || []).map((scope) => `<span class="badge">${escapeHtml(scope)}</span>`).join(' ')}</td>
+    <td class="muted">${escapeHtml(formatDate(key.createdAt))}</td>
+    <td><button type="button" class="btn btn-sm btn-danger" data-action="revoke-key" data-id="${escapeHtml(key.id)}">${icons.trash}</button></td></tr>`);
+  host.innerHTML = `
+    <div id="key-alert"></div>
+    <div class="admin-grid">
+      ${card('API keys', 'Tokens for programmatic chat, agent and MCP access.', table(['Name', 'Token', 'Scopes', 'Created', ''], rows))}
+      ${card('Create key', 'The token is shown once — copy it immediately.', `<form id="api-key-form" class="form-stack">
+        ${field('Name', input('name', 'text', '', 'required placeholder="CI / integration"'))}
+        <fieldset class="check-group"><legend>Scopes</legend><div class="check-grid">
+          ${scopes.map((scope) => `<label class="check-line"><input type="checkbox" name="scopes" value="${escapeHtml(scope)}" checked> ${escapeHtml(scope)}</label>`).join('')}
+        </div></fieldset>
+        <button type="submit" class="btn btn-primary">${icons.plus} Create API key</button>
+      </form>`)}
+    </div>`;
+  host.querySelector('#api-key-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const selected = [...form.elements.scopes].filter((el) => el.checked).map((el) => el.value);
+    try {
+      const created = await api('/api/admin/api-keys', { method: 'POST', body: { name: form.elements.name.value, scopes: selected } });
+      host.querySelector('#key-alert').innerHTML = `<div class="alert alert-success"><div>
+        <strong>New API key</strong><p class="mono small">${escapeHtml(created.token)}</p>
+        <small class="muted">Copy this now — PeaceAi stores only a hash.</small></div>
+        <button type="button" class="btn btn-sm" data-action="copy-token">${icons.file} Copy</button></div>`;
+      host.querySelector('[data-action="copy-token"]')?.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(created.token); toast('Token copied', 'success'); }
+        catch { toast('Clipboard unavailable — select the token manually.', 'error'); }
+      });
+      toast('API key created', 'success');
+      keysTab(host, container);
+    } catch (err) { toast(err.message, 'error'); }
+  });
+  host.querySelectorAll('[data-action="revoke-key"]').forEach((button) => button.addEventListener('click', async () => {
+    if (!confirm('Revoke this API key? Integrations using it will stop working.')) return;
+    try { await api(`/api/admin/api-keys/${encodeURIComponent(button.dataset.id)}`, { method: 'DELETE' }); toast('API key revoked', 'success'); keysTab(host, container); }
+    catch (err) { toast(err.message, 'error'); }
+  }));
+}
+
+// --- Workflows ---------------------------------------------------------------
+async function workflowsTab(host, container) {
+  host.innerHTML = stateBox('loading', 'Loading workflows');
+  const [res, agentsRes] = await Promise.all([api('/api/admin/workflows'), api('/api/admin/agents')]);
+  if (!isCurrent(container)) return;
+  const workflows = res.workflows || [];
+  const agents = agentsRes.agents || [];
+  const agentOptions = `<option value="">— Select agent —</option>${agents.map((a) => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.icon || '')} ${escapeHtml(a.name)}</option>`).join('')}`;
+  const stepRow = (index) => `<div class="form-grid">
+    ${field(`Step ${index} agent`, `<select name="stepAgent${index}" class="select">${agentOptions}</select>`)}
+    ${field('Instruction (optional)', input(`stepInstruction${index}`, 'text', '', 'placeholder="What should this agent do?"'))}
+  </div>`;
+  host.innerHTML = `
+    <div class="admin-grid">
+      ${card('Workflows', 'Chain multiple agents into one reusable run.', table(['Name', 'Steps', 'Status', 'Actions'], workflows.map((workflow) => `<tr>
+        <td><strong>${escapeHtml(workflow.name)}</strong><div class="muted small">${escapeHtml(workflow.description || '')}</div></td>
+        <td>${escapeHtml((workflow.steps || []).length)}</td>
+        <td><span class="badge ${workflow.enabled === false ? '' : 'badge-ok'}">${workflow.enabled === false ? 'Disabled' : 'Enabled'}</span></td>
+        <td class="actions-cell"><button type="button" class="btn btn-sm" data-action="edit-workflow" data-id="${escapeHtml(workflow.id)}">${icons.edit} Edit</button>
+          <button type="button" class="btn btn-sm btn-danger" data-action="delete-workflow" data-id="${escapeHtml(workflow.id)}">${icons.trash}</button></td></tr>`)))}
+      ${card('Workflow details', 'Pick up to three agents, in order.', `<form id="workflow-form" class="form-stack">
+        ${field('Name', input('name', 'text', '', 'required'))}
+        ${field('Description', input('description', 'text', ''))}
+        ${[1, 2, 3].map(stepRow).join('')}
+        <label class="check-line"><input type="checkbox" name="enabled" checked> Enabled</label>
+        <div class="form-actions"><button type="submit" class="btn btn-primary">Save workflow</button>
+          <button type="button" class="btn" data-action="reset-workflow">Clear</button></div>
+      </form>`)}
+    </div>`;
+  const form = host.querySelector('#workflow-form');
+  const reset = () => { form.reset(); form.removeAttribute('data-edit-id'); form.elements.enabled.checked = true; };
+  host.querySelector('[data-action="reset-workflow"]').addEventListener('click', reset);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const steps = [1, 2, 3].map((index) => ({
+      agentId: form.elements[`stepAgent${index}`].value,
+      instruction: form.elements[`stepInstruction${index}`].value,
+    })).filter((step) => step.agentId);
+    if (!steps.length) { toast('Choose at least one agent step.', 'error'); return; }
+    const editId = form.dataset.editId;
+    const body = {
+      name: form.elements.name.value,
+      description: form.elements.description.value,
+      steps,
+      enabled: form.elements.enabled.checked,
+    };
+    try {
+      await api(editId ? `/api/admin/workflows/${encodeURIComponent(editId)}` : '/api/admin/workflows', { method: editId ? 'PUT' : 'POST', body });
+      toast(editId ? 'Workflow updated' : 'Workflow created', 'success');
+      workflowsTab(host, container);
+    } catch (err) { toast(err.message, 'error'); }
+  });
+  host.querySelectorAll('[data-action="edit-workflow"]').forEach((button) => button.addEventListener('click', () => {
+    const workflow = workflows.find((item) => item.id === button.dataset.id);
+    if (!workflow) return;
+    form.dataset.editId = workflow.id;
+    form.elements.name.value = workflow.name || '';
+    form.elements.description.value = workflow.description || '';
+    form.elements.enabled.checked = workflow.enabled !== false;
+    (workflow.steps || []).slice(0, 3).forEach((step, index) => {
+      form.elements[`stepAgent${index + 1}`].value = step.agentId || '';
+      form.elements[`stepInstruction${index + 1}`].value = step.instruction || '';
+    });
+    form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }));
+  host.querySelectorAll('[data-action="delete-workflow"]').forEach((button) => button.addEventListener('click', async () => {
+    if (!confirm('Delete this workflow?')) return;
+    try { await api(`/api/admin/workflows/${encodeURIComponent(button.dataset.id)}`, { method: 'DELETE' }); toast('Workflow deleted', 'success'); workflowsTab(host, container); }
+    catch (err) { toast(err.message, 'error'); }
+  }));
+}
+
+// --- Share links -------------------------------------------------------------
+async function sharesTab(host, container) {
+  host.innerHTML = stateBox('loading', 'Loading share links');
+  const res = await api('/api/admin/agents');
+  if (!isCurrent(container)) return;
+  const agents = res.agents || [];
+  const rows = agents.map((agent) => `<tr>
+    <td><span class="agent-icon">${escapeHtml(agent.icon || 'A')}</span><strong>${escapeHtml(agent.name)}</strong></td>
+    <td>${agent.shareToken ? `<a class="mono small" href="/share/${encodeURIComponent(agent.shareToken)}" target="_blank" rel="noopener">${escapeHtml('/share/' + agent.shareToken)}</a>` : '<span class="muted">Not shared</span>'}</td>
+    <td>${escapeHtml(agent.shareLimit ?? '—')} ${escapeHtml(agent.shareBasis || '')}</td>
+    <td class="actions-cell">
+      <button type="button" class="btn btn-sm" data-action="enable-share" data-id="${escapeHtml(agent.id)}">${icons.share} ${agent.shareToken ? 'Update' : 'Enable'}</button>
+      ${agent.shareToken ? `<button type="button" class="btn btn-sm btn-danger" data-action="disable-share" data-id="${escapeHtml(agent.id)}">${icons.trash}</button>` : ''}
+    </td></tr>`);
+  host.innerHTML = `
+    <div id="share-alert"></div>
+    ${card('Shareable agent links', 'Publish an agent as a standalone chat page with its own guest limit.', table(['Agent', 'Public link', 'Limit', 'Actions'], rows))}
+    ${card('Enable a share link', 'Choose an agent and an optional visitor limit.', `<form id="share-form" class="form-grid">
+      ${field('Agent', `<select name="agentId" class="select" required><option value="">— Select —</option>${agents.map((a) => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name)}</option>`).join('')}</select>`)}
+      ${field('Limit', input('limit', 'number', '10', 'min="1" step="1"'))}
+      ${field('Count by', `<select name="basis" class="select"><option value="messages">Messages</option><option value="sessions">Sessions</option><option value="minutes">Minutes</option></select>`)}
+      <div class="form-actions"><button type="submit" class="btn btn-primary">${icons.share} Save share link</button></div>
+    </form>`)}`;
+  const showShare = (result) => {
+    host.querySelector('#share-alert').innerHTML = `<div class="alert alert-success"><div>
+      <strong>Share link ready</strong><p class="mono small">${escapeHtml(result.shareUrl || '')}</p></div>
+      <a class="btn btn-sm" href="${escapeHtml(result.shareUrl || '#')}" target="_blank" rel="noopener">Open</a></div>`;
+  };
+  host.querySelector('#share-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const id = form.elements.agentId.value;
+    if (!id) return;
+    try {
+      const result = await api(`/api/admin/agents/${encodeURIComponent(id)}/share`, { method: 'POST', body: {
+        limit: Number(form.elements.limit.value) || 10,
+        basis: form.elements.basis.value,
+      } });
+      showShare(result); toast('Share link saved', 'success'); sharesTab(host, container);
+    } catch (err) { toast(err.message, 'error'); }
+  });
+  host.querySelectorAll('[data-action="enable-share"]').forEach((button) => button.addEventListener('click', () => {
+    const agent = agents.find((item) => item.id === button.dataset.id);
+    if (!agent) return;
+    const form = host.querySelector('#share-form');
+    form.elements.agentId.value = agent.id;
+    form.elements.limit.value = agent.shareLimit || 10;
+    form.elements.basis.value = agent.shareBasis || 'messages';
+    form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }));
+  host.querySelectorAll('[data-action="disable-share"]').forEach((button) => button.addEventListener('click', async () => {
+    if (!confirm('Disable this public share link?')) return;
+    try { await api(`/api/admin/agents/${encodeURIComponent(button.dataset.id)}/share`, { method: 'DELETE' }); toast('Share link disabled', 'success'); sharesTab(host, container); }
+    catch (err) { toast(err.message, 'error'); }
+  }));
+}
+
+// --- Platform ----------------------------------------------------------------
+async function platformTab(host, container) {
+  host.innerHTML = stateBox('loading', 'Loading platform');
+  const [tenantsRes, auditRes] = await Promise.all([api('/api/platform/tenants'), api('/api/platform/audit')]);
+  if (!isCurrent(container)) return;
+  const tenants = tenantsRes.tenants || [];
+  const rows = tenants.map((tenant) => `<tr>
+    <td><strong>${escapeHtml(tenant.name)}</strong></td><td class="mono">${escapeHtml(tenant.slug)}</td>
+    <td class="mono small">${escapeHtml(tenant.id)}</td>
+    <td><button type="button" class="btn btn-sm" data-action="make-guest" data-id="${escapeHtml(tenant.id)}">Use for guests</button></td></tr>`);
+  const auditRows = (auditRes.entries || []).slice(0, 100).map((entry) => `<tr>
+    <td class="muted">${escapeHtml(formatDate(entry.createdAt || entry.ts))}</td>
+    <td><code>${escapeHtml(entry.action || '')}</code></td>
+    <td class="muted small">${escapeHtml(typeof (entry.detail || entry.details) === 'object' ? JSON.stringify(entry.detail || entry.details) : (entry.detail || entry.details || ''))}</td></tr>`);
+  host.innerHTML = `
+    <div class="admin-grid">
+      ${card('Workspaces', 'All tenants on this PeaceAi instance.', table(['Name', 'Slug', 'ID', 'Actions'], rows))}
+      ${card('New workspace', 'Create an isolated tenant.', `<form id="tenant-form" class="form-stack">
+        ${field('Workspace name', input('name', 'text', '', 'required'))}
+        <button type="submit" class="btn btn-primary">${icons.plus} Create workspace</button>
+      </form>`)}
+    </div>
+    ${card('Platform audit', 'Actions across every workspace.', table(['Time', 'Action', 'Details'], auditRows))}`;
+  host.querySelector('#tenant-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    try { await api('/api/platform/tenants', { method: 'POST', body: { name: form.elements.name.value } }); toast('Workspace created', 'success'); platformTab(host, container); }
+    catch (err) { toast(err.message, 'error'); }
+  });
+  host.querySelectorAll('[data-action="make-guest"]').forEach((button) => button.addEventListener('click', async () => {
+    if (!confirm('Use this workspace for new guest sessions?')) return;
+    try { await api('/api/platform/guest-tenant', { method: 'PUT', body: { tenantId: button.dataset.id } }); toast('Guest workspace updated', 'success'); }
+    catch (err) { toast(err.message, 'error'); }
+  }));
 }

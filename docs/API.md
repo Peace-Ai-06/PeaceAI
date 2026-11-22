@@ -42,6 +42,8 @@ Chat/conversation endpoints accept the guest cookie and restrict the agent to th
 | PUT | `/api/admin/providers/:id` | same fields (omit `apiKey` to keep existing) | `{ provider }` |
 | DELETE | `/api/admin/providers/:id` | - | `{ ok: true }` |
 | POST | `/api/admin/providers/:id/test` | - | `{ ok, models: string[] }` |
+| GET | `/api/admin/providers/:id/key` | - | `{ apiKey, providerId }` — admin-only reveal; logged in audit |
+| GET | `/api/admin/models/catalog` | - | `{ catalog: [{ providerId, providerName, kind, ok, models, error? }], fetchedAt }` — fetches models server-side using saved keys |
 | GET | `/api/admin/knowledge-bases` | - | `{ knowledgeBases: [KnowledgeBase] }` |
 | POST | `/api/admin/knowledge-bases` | `{ name, description }` | `{ knowledgeBase }` |
 | DELETE | `/api/admin/knowledge-bases/:id` | - | `{ ok: true }` |
@@ -59,10 +61,25 @@ Chat/conversation endpoints accept the guest cookie and restrict the agent to th
 | PUT | `/api/admin/branding` | `{ branding }` | `{ tenant }` |
 | GET | `/api/admin/guest-access` | - | `{ guestAccess, agent }` |
 | PUT | `/api/admin/guest-access` | `{ enabled, basis, limit, agentId }` | `{ guestAccess, tenant }` |
+| GET | `/api/admin/usage` | `?since`, `?userId` | `{ periodStart, totals, byModel, byDay }` |
+| PUT | `/api/admin/limits` | `{ monthlyTokens, monthlyCost }` (null = no limit) | `{ tenant }` |
+| GET | `/api/admin/feedback` | - | `{ feedback }` |
+| GET | `/api/admin/feedback/summary` | - | `{ total, positive, negative, average, byAgent }` |
+| GET | `/api/admin/workflows` | - | `{ workflows }` |
+| POST | `/api/admin/workflows` | `{ name, description, steps, enabled }` | `{ workflow }` |
+| PUT | `/api/admin/workflows/:id` | same fields | `{ workflow }` |
+| DELETE | `/api/admin/workflows/:id` | - | `{ ok: true }` |
+| POST | `/api/admin/agents/:id/share` | `{ limit?, basis? }` | `{ agent, token, shareUrl }` |
+| DELETE | `/api/admin/agents/:id/share` | - | `{ ok: true }` |
+| GET | `/api/admin/api-keys` | - | `{ apiKeys, scopes }` |
+| POST | `/api/admin/api-keys` | `{ name, scopes }` | `{ apiKey, token }` — token shown once |
+| DELETE | `/api/admin/api-keys/:id` | - | `{ ok: true }` |
 | GET | `/api/admin/audit` | - | `{ entries }` |
 | GET | `/api/templates` | - | `{ templates: [AgentTemplate] }` |
 
-Provider: `{ id, tenantId, name, kind, baseUrl, hasApiKey, enabled, createdAt, isBuiltIn? }` (apiKey never returned). A built-in `local` provider (`peaceai-local`) is seeded per tenant and wired to the default guest agent; it needs no base URL or API key and cannot be deleted.
+Platform-admin-only endpoints: `GET /api/platform/tenants`, `POST /api/platform/tenants`, `PUT /api/platform/guest-tenant`, `GET /api/platform/audit`.
+
+Provider: `{ id, tenantId, name, kind, baseUrl, hasApiKey, enabled, createdAt, isBuiltIn? }`. The raw key is never returned by list/get endpoints; `GET /api/admin/providers/:id/key` decrypts it on demand for an admin and writes an audit entry. A built-in `local` provider (`peaceai-local`) is seeded per tenant and wired to the default guest agent; it needs no base URL or API key and cannot be deleted.
 KnowledgeBase: `{ id, tenantId, name, description, documentCount, chunkCount, createdAt }`
 Document: `{ id, tenantId, knowledgeBaseId, name, mimeType, size, chunkCount, status:'ready'|'error', error?, createdAt }`
 Agent: `{ id, tenantId, name, description, icon, accent, persona, providerId, model, embeddingProviderId, embeddingModel, knowledgeBaseIds: string[], generation: { temperature, maxTokens }, tools: { enabled: string[], approvalRequired: boolean }, visibility:'tenant'|'link', createdAt }`

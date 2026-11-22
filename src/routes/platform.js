@@ -7,6 +7,10 @@ import { DEFAULT_BRANDING, slugify } from '../lib/theme.js';
 export const platformRouter = Router();
 platformRouter.use(requirePlatformAdmin);
 
+platformRouter.get('/settings', (_req, res) => {
+  res.json({ guestTenantId: db().meta.guestTenantId || null });
+});
+
 platformRouter.get('/tenants', (_req, res) => {
   res.json({ tenants: filter('tenants', () => true) });
 });
