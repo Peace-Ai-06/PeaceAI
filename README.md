@@ -55,15 +55,19 @@ The app opens **directly in chat** as a guest — no login screen blocks the fir
 
 ## Admin workflow
 
+Every admin action is available from the expanded **Admin** section in the sidebar: Overview, Providers, Model catalog, Knowledge bases, Agents, Guest access, Users, Usage & limits, Feedback, API keys, Workflows, Shares, Branding, Audit, and Platform (platform admins only).
+
 1. **Providers** — add a model provider:
    - Hosted OpenAI-compatible: kind `openai`, base URL `https://api.openai.com/v1` (or any compatible endpoint), add an API key.
    - Anthropic: kind `anthropic`, add an API key; base URL can stay empty.
    - Local: install [Ollama](https://ollama.com), run `ollama pull llama3.2` and `ollama pull nomic-embed-text`, then add kind `ollama` with base URL `http://127.0.0.1:11434`.
-   - Use **Test** to fetch the available model list.
-2. **Knowledge bases** — create one, optionally choose an embedding provider/model (e.g. `nomic-embed-text` or `text-embedding-3-small`), and upload books/files. Status, chunk count and errors are shown per document.
-3. **Agents** — create from a template or from scratch. Pick a provider + model, attach knowledge bases, write the persona, tune temperature/max tokens, and enable the tools the agent may use. Turn on approval-required for sensitive tools.
-4. **Branding & users** — set the workspace name/accent/tagline and add members. Members can use agents but cannot change admin settings.
-5. **Chat** — pick an agent, start a conversation, attach files for one-off context, approve tool calls, and inspect cited sources.
+   - Use **Test** to fetch the available model list, or **Read key** to reveal a saved key (admin-only and audit-logged).
+2. **Model catalog** — fetches models from every enabled provider at once, server-side, using the stored keys. Keys are never sent to the browser.
+3. **Knowledge bases** — create one, optionally choose an embedding provider/model (e.g. `nomic-embed-text` or `text-embedding-3-small`), and upload books/files. This is the app's RAG "training" material — PeaceAi does not train model weights.
+4. **Agents** — create from a template or from scratch. Pick a provider + model, attach knowledge bases, write the persona, tune temperature/max tokens, and enable the tools the agent may use. Turn on approval-required for sensitive tools.
+5. **Guest access, users, branding** — control the no-login experience, invite members, and set the workspace name/accent/tagline.
+6. **Usage & limits, feedback, workflows, shares, API keys** — monitor cost, publish agents, automate multi-agent runs, and issue scoped programmatic tokens.
+7. **Chat** — pick an agent, start a conversation, attach files for one-off context, approve tool calls, and inspect cited sources.
 
 ## Project layout
 

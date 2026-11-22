@@ -128,3 +128,68 @@ test('API keys unlock an MCP endpoint that exposes agents as tools', async () =>
   });
   assert.equal(denied.status, 401);
 });
+
+test('admin UI defines every management tab exactly once', () => {
+  const source = fs.readFileSync(new URL('../src/public/js/admin.js', import.meta.url), 'utf8');
+  const navIds = [...source.matchAll(/^\s*\{ id: '([^']+)',/gm)].map((match) => match[1]);
+  const panels = {
+    catalog: 'catalogTab', usage: 'usageTab', feedback: 'feedbackTab',
+    keys: 'keysTab', workflows: 'workflowsTab', shares: 'sharesTab', platform: 'platformTab',
+  };
+  for (const [id, fn] of Object.entries(panels)) {
+    assert.ok(navIds.includes(id), `${id} is in admin navigation`);
+    const declarations = source.match(new RegExp(`async function ${fn}\\(`, 'g')) || [];
+    assert.equal(declarations.length, 1, `${fn} is declared exactly once`);
+  }
+  assert.doesNotMatch(source, /agent\.shareLimit|agent\.shareBasis/);
+});
+
+test('every management panel has a working admin endpoint', async () => {
+  const admin = client(base);
+  await admin.request('POST', '/api/auth/login', { email: 'usage@example.com', password: 'password123' });
+  const paths = [
+    '/api/admin/overview', '/api/admin/providers', '/api/admin/models/catalog',
+    '/api/admin/knowledge-bases', '/api/admin/agents', '/api/admin/guest-access',
+    '/api/admin/users', '/api/admin/usage', '/api/admin/feedback',
+    '/api/admin/feedback/summary', '/api/admin/api-keys', '/api/admin/workflows',
+    '/api/admin/audit', '/api/platform/tenants', '/api/platform/audit', '/api/platform/settings',
+  ];
+  for (const path of paths) {
+    const res = await admin.request('GET', path);
+    assert.equal(res.status, 200, `${path} responds with 200`);
+  }
+});
+
+test('model catalog and key reveal use the saved provider credentials', async () => {
+  const admin = client(base);
+  await admin.request('POST', '/api/auth/login', { email: 'usage@example.com', password: 'password123' });
+  const catalog = await admin.request('GET', '/api/admin/models/catalog');
+  assert.equal(catalog.status, 200);
+  const entry = catalog.data.catalog.find((item) => item.providerName === 'Mock');
+  assert.ok(entry?.ok, 'mock provider was queried successfully');
+  assert.ok(entry.models.includes('mock-model'));
+
+  const reveal = await admin.request('GET', `/api/admin/providers/${entry.providerId}/key`);
+  assert.equal(reveal.status, 200);
+  assert.equal(reveal.data.apiKey, 'test-key');
+  const audit = await admin.request('GET', '/api/admin/audit');
+  assert.ok(audit.data.entries.some((item) => item.action === 'provider.key_revealed' && item.detail?.providerId === entry.providerId));
+});
+
+test('platform settings expose and update the guest workspace', async () => {
+  const admin = client(base);
+  await admin.request('POST', '/api/auth/login', { email: 'usage@example.com', password: 'password123' });
+  const before = await admin.request('GET', '/api/platform/settings');
+  assert.equal(before.status, 200);
+
+  const created = await admin.request('POST', '/api/platform/tenants', { name: 'Panel Test Org' });
+  assert.equal(created.status, 201);
+  const switchRes = await admin.request('PUT', '/api/platform/guest-tenant', { tenantId: created.data.tenant.id });
+  assert.equal(switchRes.data.guestTenantId, created.data.tenant.id);
+  const after = await admin.request('GET', '/api/platform/settings');
+  assert.equal(after.data.guestTenantId, created.data.tenant.id);
+
+  if (before.data.guestTenantId) {
+    await admin.request('PUT', '/api/platform/guest-tenant', { tenantId: before.data.guestTenantId });
+  }
+});

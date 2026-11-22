@@ -671,26 +671,57 @@ async function catalogTab(host, container) {
 // --- Usage & limits ----------------------------------------------------------
 async function usageTab(host, container) {
   host.innerHTML = stateBox('loading', 'Loading usage');
-  const [usage, overview] = await Promise.all([api('/api/admin/usage'), api('/api/admin/overview')]);
+  const userId = state.usageFilter?.userId || '';
+  const query = userId ? `?userId=${encodeURIComponent(userId)}` : '';
+  const [usage, overview, users] = await Promise.all([
+    api(`/api/admin/usage${query}`), api('/api/admin/overview'), api('/api/admin/users'),
+  ]);
   if (!isCurrent(container)) return;
   const totals = usage.totals || {};
   const limits = overview.tenant?.limits || {};
-  const modelRows = Object.entries(usage.byModel || {}).map(([model, value]) => `<tr>
+  const count = (value) => Number(value || 0).toLocaleString();
+  const cost = (value) => `$${Number(value || 0).toFixed(4)}`;
+  const userOptions = `<option value="">All users</option>${(users.users || []).map((user) => `
+    <option value="${escapeHtml(user.id)}" ${user.id === userId ? 'selected' : ''}>${escapeHtml(user.name)} — ${escapeHtml(user.email)}</option>`).join('')}`;
+  const modelRows = Object.entries(usage.byModel || {}).sort((a, b) => b[1].totalTokens - a[1].totalTokens).map(([model, value]) => `<tr>
     <td class="mono">${escapeHtml(model)}</td><td>${escapeHtml(value.requests ?? 0)}</td>
-    <td>${Number(value.totalTokens || 0).toLocaleString()}</td><td>$${escapeHtml(value.cost ?? 0)}</td></tr>`);
+    <td>${count(value.totalTokens)}</td><td>${cost(value.cost)}</td></tr>`);
+  const dayRows = Object.entries(usage.byDay || {}).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 14).map(([day, value]) => `<tr>
+    <td class="mono">${escapeHtml(day)}</td><td>${escapeHtml(value.requests ?? 0)}</td>
+    <td>${count(value.totalTokens)}</td><td>${cost(value.cost)}</td></tr>`);
   host.innerHTML = `
     <div class="stat-grid">
-      ${[['Requests', totals.requests ?? 0, icons.chat], ['Tokens', Number(totals.totalTokens || 0).toLocaleString(), icons.spark], ['Estimated cost', `$${totals.cost ?? 0}`, icons.chart]].map(([label, value, icon]) => `
+      ${[
+        ['Requests', count(totals.requests), icons.chat],
+        ['Tokens', count(totals.totalTokens), icons.spark],
+        ['Estimated cost', cost(totals.cost), icons.chart],
+        ['Period start', String(usage.periodStart || '').slice(0, 10) || '—', icons.refresh],
+      ].map(([label, value, icon]) => `
         <div class="stat-card card"><div class="stat-icon">${icon}</div><div class="stat-value">${escapeHtml(value)}</div><div class="muted">${escapeHtml(label)}</div></div>`).join('')}
     </div>
+    ${card('Filter', 'Usage is measured from the start of the current billing period.', `<form id="usage-filter" class="form-grid form-inline">
+      ${field('User', `<select name="userId" class="select">${userOptions}</select>`)}
+      <div class="form-actions"><button type="submit" class="btn btn-sm btn-primary">Apply</button>
+        <button type="button" class="btn btn-sm" data-action="clear-usage-filter">Reset</button></div>
+    </form>`)}
     <div class="admin-grid">
-      ${card('Monthly limits', 'Leave a field blank for no limit.', `<form id="limits-form" class="form-grid">
-        ${field('Monthly tokens', input('monthlyTokens', 'number', limits.monthlyTokens ?? '', 'min="0" step="1"'))}
+      ${card('Monthly limits', 'Leave a field blank for no limit. Exceeding a limit returns HTTP 429 to users.', `<form id="limits-form" class="form-grid">
+        ${field('Monthly tokens', input('monthlyTokens', 'number', limits.monthlyTokens ?? '', 'min="0" step="1000"'))}
         ${field('Monthly cost (USD)', input('monthlyCost', 'number', limits.monthlyCost ?? '', 'min="0" step="0.01"'))}
         <div class="form-actions"><button type="submit" class="btn btn-primary">Save limits</button></div>
       </form>`)}
       ${card('Usage by model', 'Current billing period.', table(['Model', 'Requests', 'Tokens', 'Est. cost'], modelRows))}
-    </div>`;
+    </div>
+    ${card('Recent activity', 'Last 14 days with recorded usage.', table(['Day', 'Requests', 'Tokens', 'Est. cost'], dayRows))}`;
+  host.querySelector('#usage-filter').addEventListener('submit', (event) => {
+    event.preventDefault();
+    state.usageFilter = { userId: event.currentTarget.elements.userId.value || undefined };
+    usageTab(host, container);
+  });
+  host.querySelector('[data-action="clear-usage-filter"]').addEventListener('click', () => {
+    state.usageFilter = {};
+    usageTab(host, container);
+  });
   host.querySelector('#limits-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -708,12 +739,15 @@ async function usageTab(host, container) {
 // --- Feedback ----------------------------------------------------------------
 async function feedbackTab(host, container) {
   host.innerHTML = stateBox('loading', 'Loading feedback');
-  const [summary, res] = await Promise.all([api('/api/admin/feedback/summary'), api('/api/admin/feedback')]);
+  const [summary, res, agentsRes] = await Promise.all([
+    api('/api/admin/feedback/summary'), api('/api/admin/feedback'), api('/api/admin/agents'),
+  ]);
   if (!isCurrent(container)) return;
+  const agentNames = new Map((agentsRes.agents || []).map((agent) => [agent.id, agent.name]));
   const rows = (res.feedback || []).map((item) => `<tr>
     <td class="muted">${escapeHtml(formatDate(item.ts))}</td>
     <td><span class="badge ${item.rating >= 4 ? 'badge-ok' : item.rating <= 2 ? 'badge-danger' : ''}">${escapeHtml(item.rating)} / 5</span></td>
-    <td class="mono small">${escapeHtml(item.agentId || '—')}</td>
+    <td>${escapeHtml(agentNames.get(item.agentId) || item.agentId || '—')}</td>
     <td>${escapeHtml(item.comment || '—')}</td></tr>`);
   host.innerHTML = `
     <div class="stat-grid">
@@ -752,16 +786,20 @@ async function keysTab(host, container) {
     const selected = [...form.elements.scopes].filter((el) => el.checked).map((el) => el.value);
     try {
       const created = await api('/api/admin/api-keys', { method: 'POST', body: { name: form.elements.name.value, scopes: selected } });
-      host.querySelector('#key-alert').innerHTML = `<div class="alert alert-success"><div>
-        <strong>New API key</strong><p class="mono small">${escapeHtml(created.token)}</p>
-        <small class="muted">Copy this now — PeaceAi stores only a hash.</small></div>
-        <button type="button" class="btn btn-sm" data-action="copy-token">${icons.file} Copy</button></div>`;
-      host.querySelector('[data-action="copy-token"]')?.addEventListener('click', async () => {
-        try { await navigator.clipboard.writeText(created.token); toast('Token copied', 'success'); }
-        catch { toast('Clipboard unavailable — select the token manually.', 'error'); }
-      });
+      // Refresh the list first, then write the one-time token into the new DOM so it is not wiped.
+      await keysTab(host, container);
+      const alertBox = host.querySelector('#key-alert');
+      if (alertBox) {
+        alertBox.innerHTML = `<div class="alert alert-success"><div>
+          <strong>New API key</strong><p class="mono small">${escapeHtml(created.token)}</p>
+          <small class="muted">Copy this now — PeaceAi stores only a hash.</small></div>
+          <button type="button" class="btn btn-sm" data-action="copy-token">${icons.file} Copy</button></div>`;
+        alertBox.querySelector('[data-action="copy-token"]')?.addEventListener('click', async () => {
+          try { await navigator.clipboard.writeText(created.token); toast('Token copied', 'success'); }
+          catch { toast('Clipboard unavailable — select the token manually.', 'error'); }
+        });
+      }
       toast('API key created', 'success');
-      keysTab(host, container);
     } catch (err) { toast(err.message, 'error'); }
   });
   host.querySelectorAll('[data-action="revoke-key"]').forEach((button) => button.addEventListener('click', async () => {
@@ -784,17 +822,19 @@ async function workflowsTab(host, container) {
     ${field('Instruction (optional)', input(`stepInstruction${index}`, 'text', '', 'placeholder="What should this agent do?"'))}
   </div>`;
   host.innerHTML = `
+    <div id="workflow-result"></div>
     <div class="admin-grid">
-      ${card('Workflows', 'Chain multiple agents into one reusable run.', table(['Name', 'Steps', 'Status', 'Actions'], workflows.map((workflow) => `<tr>
+      ${card('Workflows', 'Chain up to eight agents into one reusable run.', table(['Name', 'Steps', 'Status', 'Actions'], workflows.map((workflow) => `<tr>
         <td><strong>${escapeHtml(workflow.name)}</strong><div class="muted small">${escapeHtml(workflow.description || '')}</div></td>
         <td>${escapeHtml((workflow.steps || []).length)}</td>
         <td><span class="badge ${workflow.enabled === false ? '' : 'badge-ok'}">${workflow.enabled === false ? 'Disabled' : 'Enabled'}</span></td>
-        <td class="actions-cell"><button type="button" class="btn btn-sm" data-action="edit-workflow" data-id="${escapeHtml(workflow.id)}">${icons.edit} Edit</button>
+        <td class="actions-cell"><button type="button" class="btn btn-sm" data-action="test-workflow" data-id="${escapeHtml(workflow.id)}">${icons.test} Test</button>
+          <button type="button" class="btn btn-sm" data-action="edit-workflow" data-id="${escapeHtml(workflow.id)}">${icons.edit} Edit</button>
           <button type="button" class="btn btn-sm btn-danger" data-action="delete-workflow" data-id="${escapeHtml(workflow.id)}">${icons.trash}</button></td></tr>`)))}
-      ${card('Workflow details', 'Pick up to three agents, in order.', `<form id="workflow-form" class="form-stack">
+      ${card('Workflow details', 'Pick up to eight agents, in order.', `<form id="workflow-form" class="form-stack">
         ${field('Name', input('name', 'text', '', 'required'))}
         ${field('Description', input('description', 'text', ''))}
-        ${[1, 2, 3].map(stepRow).join('')}
+        ${[1, 2, 3, 4, 5, 6, 7, 8].map(stepRow).join('')}
         <label class="check-line"><input type="checkbox" name="enabled" checked> Enabled</label>
         <div class="form-actions"><button type="submit" class="btn btn-primary">Save workflow</button>
           <button type="button" class="btn" data-action="reset-workflow">Clear</button></div>
@@ -805,7 +845,7 @@ async function workflowsTab(host, container) {
   host.querySelector('[data-action="reset-workflow"]').addEventListener('click', reset);
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const steps = [1, 2, 3].map((index) => ({
+    const steps = [1, 2, 3, 4, 5, 6, 7, 8].map((index) => ({
       agentId: form.elements[`stepAgent${index}`].value,
       instruction: form.elements[`stepInstruction${index}`].value,
     })).filter((step) => step.agentId);
@@ -830,7 +870,7 @@ async function workflowsTab(host, container) {
     form.elements.name.value = workflow.name || '';
     form.elements.description.value = workflow.description || '';
     form.elements.enabled.checked = workflow.enabled !== false;
-    (workflow.steps || []).slice(0, 3).forEach((step, index) => {
+    (workflow.steps || []).slice(0, 8).forEach((step, index) => {
       form.elements[`stepAgent${index + 1}`].value = step.agentId || '';
       form.elements[`stepInstruction${index + 1}`].value = step.instruction || '';
     });
@@ -841,6 +881,18 @@ async function workflowsTab(host, container) {
     try { await api(`/api/admin/workflows/${encodeURIComponent(button.dataset.id)}`, { method: 'DELETE' }); toast('Workflow deleted', 'success'); workflowsTab(host, container); }
     catch (err) { toast(err.message, 'error'); }
   }));
+  host.querySelectorAll('[data-action="test-workflow"]').forEach((button) => button.addEventListener('click', async () => {
+    const message = prompt('Test message for this workflow:');
+    if (!message) return;
+    const slot = host.querySelector('#workflow-result');
+    slot.innerHTML = stateBox('loading', 'Running workflow');
+    try {
+      const result = await api(`/api/workflows/${encodeURIComponent(button.dataset.id)}/run`, { method: 'POST', body: { message } });
+      slot.innerHTML = card('Test result', `${result.steps?.length || 0} step(s) completed`,
+        (result.steps || []).map((step) => `<div class="alert alert-info"><strong>${escapeHtml(step.agentName)}</strong><div>${escapeHtml(step.output)}</div></div>`).join('')
+        + (result.error ? `<div class="alert alert-error">${escapeHtml(result.error.message)}</div>` : ''));
+    } catch (err) { slot.innerHTML = errorBox(err); }
+  }));
 }
 
 // --- Share links -------------------------------------------------------------
@@ -849,21 +901,25 @@ async function sharesTab(host, container) {
   const res = await api('/api/admin/agents');
   if (!isCurrent(container)) return;
   const agents = res.agents || [];
-  const rows = agents.map((agent) => `<tr>
+  const rows = agents.map((agent) => {
+    const share = agent.share || {};
+    const active = Boolean(agent.shareToken) && share.enabled !== false;
+    return `<tr>
     <td><span class="agent-icon">${escapeHtml(agent.icon || 'A')}</span><strong>${escapeHtml(agent.name)}</strong></td>
-    <td>${agent.shareToken ? `<a class="mono small" href="/share/${encodeURIComponent(agent.shareToken)}" target="_blank" rel="noopener">${escapeHtml('/share/' + agent.shareToken)}</a>` : '<span class="muted">Not shared</span>'}</td>
-    <td>${escapeHtml(agent.shareLimit ?? '—')} ${escapeHtml(agent.shareBasis || '')}</td>
+    <td>${active ? `<a class="mono small" href="/share/${encodeURIComponent(agent.shareToken)}" target="_blank" rel="noopener">${escapeHtml('/share/' + agent.shareToken)}</a>` : '<span class="muted">Not shared</span>'}</td>
+    <td>${escapeHtml(share.limit ?? '—')} ${escapeHtml(share.basis || '')}</td>
     <td class="actions-cell">
-      <button type="button" class="btn btn-sm" data-action="enable-share" data-id="${escapeHtml(agent.id)}">${icons.share} ${agent.shareToken ? 'Update' : 'Enable'}</button>
+      <button type="button" class="btn btn-sm" data-action="enable-share" data-id="${escapeHtml(agent.id)}">${icons.share} ${active ? 'Update' : 'Enable'}</button>
       ${agent.shareToken ? `<button type="button" class="btn btn-sm btn-danger" data-action="disable-share" data-id="${escapeHtml(agent.id)}">${icons.trash}</button>` : ''}
-    </td></tr>`);
+    </td></tr>`;
+  });
   host.innerHTML = `
     <div id="share-alert"></div>
     ${card('Shareable agent links', 'Publish an agent as a standalone chat page with its own guest limit.', table(['Agent', 'Public link', 'Limit', 'Actions'], rows))}
     ${card('Enable a share link', 'Choose an agent and an optional visitor limit.', `<form id="share-form" class="form-grid">
       ${field('Agent', `<select name="agentId" class="select" required><option value="">— Select —</option>${agents.map((a) => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name)}</option>`).join('')}</select>`)}
       ${field('Limit', input('limit', 'number', '10', 'min="1" step="1"'))}
-      ${field('Count by', `<select name="basis" class="select"><option value="messages">Messages</option><option value="sessions">Sessions</option><option value="minutes">Minutes</option></select>`)}
+      ${field('Count by', `<select name="basis" class="select"><option value="messages">Messages</option><option value="sessions">Sessions</option></select>`)}
       <div class="form-actions"><button type="submit" class="btn btn-primary">${icons.share} Save share link</button></div>
     </form>`)}`;
   const showShare = (result) => {
@@ -881,7 +937,10 @@ async function sharesTab(host, container) {
         limit: Number(form.elements.limit.value) || 10,
         basis: form.elements.basis.value,
       } });
-      showShare(result); toast('Share link saved', 'success'); sharesTab(host, container);
+      // Re-render first so the new link row is current, then show the share URL.
+      await sharesTab(host, container);
+      showShare(result);
+      toast('Share link saved', 'success');
     } catch (err) { toast(err.message, 'error'); }
   });
   host.querySelectorAll('[data-action="enable-share"]').forEach((button) => button.addEventListener('click', () => {
@@ -889,8 +948,8 @@ async function sharesTab(host, container) {
     if (!agent) return;
     const form = host.querySelector('#share-form');
     form.elements.agentId.value = agent.id;
-    form.elements.limit.value = agent.shareLimit || 10;
-    form.elements.basis.value = agent.shareBasis || 'messages';
+    form.elements.limit.value = agent.share?.limit || 10;
+    form.elements.basis.value = agent.share?.basis || 'messages';
     form.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }));
   host.querySelectorAll('[data-action="disable-share"]').forEach((button) => button.addEventListener('click', async () => {
@@ -903,20 +962,26 @@ async function sharesTab(host, container) {
 // --- Platform ----------------------------------------------------------------
 async function platformTab(host, container) {
   host.innerHTML = stateBox('loading', 'Loading platform');
-  const [tenantsRes, auditRes] = await Promise.all([api('/api/platform/tenants'), api('/api/platform/audit')]);
+  const [tenantsRes, auditRes, settingsRes] = await Promise.all([
+    api('/api/platform/tenants'), api('/api/platform/audit'), api('/api/platform/settings'),
+  ]);
   if (!isCurrent(container)) return;
   const tenants = tenantsRes.tenants || [];
-  const rows = tenants.map((tenant) => `<tr>
+  const rows = tenants.map((tenant) => {
+    const isGuest = tenant.id === settingsRes.guestTenantId;
+    return `<tr>
     <td><strong>${escapeHtml(tenant.name)}</strong></td><td class="mono">${escapeHtml(tenant.slug)}</td>
     <td class="mono small">${escapeHtml(tenant.id)}</td>
-    <td><button type="button" class="btn btn-sm" data-action="make-guest" data-id="${escapeHtml(tenant.id)}">Use for guests</button></td></tr>`);
+    <td>${isGuest ? '<span class="badge badge-ok">Guest workspace</span>' : '—'}</td>
+    <td><button type="button" class="btn btn-sm" data-action="make-guest" data-id="${escapeHtml(tenant.id)}" ${isGuest ? 'disabled' : ''}>Use for guests</button></td></tr>`;
+  });
   const auditRows = (auditRes.entries || []).slice(0, 100).map((entry) => `<tr>
     <td class="muted">${escapeHtml(formatDate(entry.createdAt || entry.ts))}</td>
     <td><code>${escapeHtml(entry.action || '')}</code></td>
     <td class="muted small">${escapeHtml(typeof (entry.detail || entry.details) === 'object' ? JSON.stringify(entry.detail || entry.details) : (entry.detail || entry.details || ''))}</td></tr>`);
   host.innerHTML = `
     <div class="admin-grid">
-      ${card('Workspaces', 'All tenants on this PeaceAi instance.', table(['Name', 'Slug', 'ID', 'Actions'], rows))}
+      ${card('Workspaces', 'All tenants on this PeaceAi instance.', table(['Name', 'Slug', 'ID', 'Guest', 'Actions'], rows))}
       ${card('New workspace', 'Create an isolated tenant.', `<form id="tenant-form" class="form-stack">
         ${field('Workspace name', input('name', 'text', '', 'required'))}
         <button type="submit" class="btn btn-primary">${icons.plus} Create workspace</button>
@@ -931,7 +996,11 @@ async function platformTab(host, container) {
   });
   host.querySelectorAll('[data-action="make-guest"]').forEach((button) => button.addEventListener('click', async () => {
     if (!confirm('Use this workspace for new guest sessions?')) return;
-    try { await api('/api/platform/guest-tenant', { method: 'PUT', body: { tenantId: button.dataset.id } }); toast('Guest workspace updated', 'success'); }
+    try {
+      await api('/api/platform/guest-tenant', { method: 'PUT', body: { tenantId: button.dataset.id } });
+      toast('Guest workspace updated', 'success');
+      await platformTab(host, container);
+    }
     catch (err) { toast(err.message, 'error'); }
   }));
 }
