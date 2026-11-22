@@ -11,6 +11,10 @@ import { chatRouter } from './routes/chat.js';
 import { toolsRouter } from './routes/tools.js';
 import { platformRouter } from './routes/platform.js';
 import { guestRouter } from './routes/guest.js';
+import { adminInsightsRouter, feedbackRouter, insightsRouter } from './routes/insights.js';
+import { keysRouter } from './routes/keys.js';
+import { mcpRouter } from './routes/mcp.js';
+import { rateLimit } from './lib/ratelimit.js';
 
 const publicDir = path.resolve('src/public');
 
@@ -18,6 +22,7 @@ export function createApp() {
   initStore();
   const app = express();
   app.disable('x-powered-by');
+  app.set('trust proxy', 1);
   app.use(express.json({ limit: '4mb' }));
   app.use(express.urlencoded({ extended: true, limit: '4mb' }));
 
@@ -25,12 +30,18 @@ export function createApp() {
     res.json({ ok: true, version: '0.1.0', time: now() });
   });
 
-  app.use('/api/auth', authRouter);
-  app.use('/api/guest', guestRouter);
+  app.use('/api/auth', rateLimit({ scope: 'auth', limit: 10, windowMs: 60_000 }), authRouter);
+  app.use('/api/guest', rateLimit({ scope: 'guest', limit: 30, windowMs: 60_000 }), guestRouter);
   app.use('/api/me', meRouter);
+  app.use('/api/me', insightsRouter);
   app.use('/api/admin', adminRouter);
+  app.use('/api/admin', adminInsightsRouter);
+  app.use('/api/admin/api-keys', keysRouter);
   app.use('/api/templates', templatesRouter);
   app.use('/api/agents', agentsRouter);
+  app.use('/api/feedback', feedbackRouter());
+  // Mount MCP before the catch-all chat router so its API-key auth applies.
+  app.use('/api/mcp', rateLimit({ scope: 'mcp', limit: 120, windowMs: 60_000 }), mcpRouter);
   app.use('/api', chatRouter);
   app.use('/api/tools', toolsRouter);
   app.use('/api/platform', platformRouter);

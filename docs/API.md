@@ -19,6 +19,17 @@ Every resource is scoped to the authenticated user's tenant. `admin` role is req
 User: `{ id, tenantId, email, name, role: 'admin'|'member', isPlatformAdmin, theme: { mode:'dark'|'light', accent, font, density:'comfortable'|'compact', sidebar:'left'|'right', customCss }, createdAt }`
 Tenant: `{ id, name, slug, branding: { appName, logoText, accent, tagline }, createdAt }`
 
+## Guest (no login required)
+
+| Method | Path | Body | Response |
+| --- | --- | --- | --- |
+| POST | `/api/guest/session` | - | `{ guest, tenant, agent, isGuest:true }` + guest cookie `peaceai_guest` |
+| GET | `/api/guest/me` | - | `{ guest, tenant, agent, isGuest:true }` |
+| GET | `/api/guest/limit` | - | `{ guest, remaining }` |
+
+Guest info: `{ enabled, basis:'messages'|'sessions'|'minutes', limit, used, remaining, startedAt }`.
+Chat/conversation endpoints accept the guest cookie and restrict the agent to the tenant's configured guest agent. When the limit is reached, JSON endpoints return `403 { error: { code:'guest_limit_reached' } }` and the SSE stream emits an `error` event with the same code.
+
 ## Admin
 
 | Method | Path | Body | Response |
@@ -44,6 +55,8 @@ Tenant: `{ id, name, slug, branding: { appName, logoText, accent, tagline }, cre
 | PUT | `/api/admin/users/:id` | `{ name?, role?, active? }` | `{ user }` |
 | DELETE | `/api/admin/users/:id` | - | `{ ok: true }` |
 | PUT | `/api/admin/branding` | `{ branding }` | `{ tenant }` |
+| GET | `/api/admin/guest-access` | - | `{ guestAccess, agent }` |
+| PUT | `/api/admin/guest-access` | `{ enabled, basis, limit, agentId }` | `{ guestAccess, tenant }` |
 | GET | `/api/admin/audit` | - | `{ entries }` |
 | GET | `/api/templates` | - | `{ templates: [AgentTemplate] }` |
 
@@ -102,4 +115,39 @@ Tools run inside the tenant's sandbox (`data/workspaces/<tenantId>/`). Dangerous
 | --- | --- | --- | --- |
 | GET | `/api/platform/tenants` | - | `{ tenants: [Tenant] }` |
 | POST | `/api/platform/tenants` | `{ name }` | `{ tenant }` |
+| PUT | `/api/platform/guest-tenant` | `{ tenantId }` | `{ tenant, guestTenantId }` |
 | GET | `/api/platform/audit` | - | `{ entries }` |
+
+## Usage, budgets and feedback
+
+| Method | Path | Body / query | Response |
+| --- | --- | --- | --- |
+| GET | `/api/me/usage` | `?since=` ISO date | `{ periodStart, totals:{requests,promptTokens,completionTokens,totalTokens,cost}, byModel, byDay }` |
+| GET | `/api/admin/usage` | `?since=&userId=` | same, optionally for one user |
+| PUT | `/api/admin/limits` | `{ monthlyTokens?, monthlyCost? }` (null clears) | `{ tenant }` |
+| POST | `/api/feedback` | `{ conversationId, messageId, rating:1-5, comment? }` | `{ feedback }` |
+| GET | `/api/admin/feedback` | - | `{ feedback: [...] }` |
+| GET | `/api/admin/feedback/summary` | - | `{ total, positive, negative, average, byAgent }` |
+
+## API keys
+
+| Method | Path | Body | Response |
+| --- | --- | --- | --- |
+| GET | `/api/admin/api-keys` | - | `{ apiKeys: [...], scopes:['chat','agents','mcp'] }` |
+| POST | `/api/admin/api-keys` | `{ name?, scopes? }` | `{ apiKey, token }` — token shown once |
+| DELETE | `/api/admin/api-keys/:id` | - | `{ ok: true }` |
+
+API keys authenticate with `Authorization: Bearer <token>`. Only a SHA-256 hash and prefix are stored.
+
+## MCP (Model Context Protocol)
+
+`POST /api/mcp` accepts a JSON-RPC 2.0 object or array, authenticated with an API key that has the `mcp` scope.
+
+| Method | Params | Result |
+| --- | --- | --- |
+| `initialize` | - | `{ protocolVersion, capabilities:{tools:{}}, serverInfo }` |
+| `ping` | - | `{}` |
+| `tools/list` | - | `{ tools: [{ name:'peaceai_<agentId>', description, inputSchema }] }` |
+| `tools/call` | `{ name, arguments:{ message, conversationId? } }` | `{ content:[{type:'text',text}], isError, conversationId }` |
+
+Errors use JSON-RPC codes: `-32601` unknown method, `-32602` invalid params, `-32603` internal error. Budget limits apply to MCP calls as well.

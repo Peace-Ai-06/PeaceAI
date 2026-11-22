@@ -49,9 +49,13 @@ export function startMockProvider() {
               tool_calls: [{ id: 'call_mock_1', type: 'function', function: { name: 'read_file', arguments: JSON.stringify({ path: 'notes.txt' }) } }],
             },
           }],
+          usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
         }));
       }
-      return res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: hasToolResult ? 'Done after tool.' : 'Mock answer.' } }] }));
+      return res.end(JSON.stringify({
+        choices: [{ message: { role: 'assistant', content: hasToolResult ? 'Done after tool.' : 'Mock answer.' } }],
+        usage: { prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 },
+      }));
     }
     res.writeHead(404);
     res.end('{}');
@@ -62,11 +66,12 @@ export function startMockProvider() {
 }
 
 export function client(base) {
-  let cookie = '';
+  const jar = new Map();
+  const cookieHeader = () => [...jar].map(([name, value]) => `${name}=${value}`).join('; ');
   return {
-    get cookie() { return cookie; },
+    get cookie() { return cookieHeader(); },
     async request(method, path, body, form) {
-      const headers = cookie ? { Cookie: cookie } : {};
+      const headers = cookieHeader() ? { Cookie: cookieHeader() } : {};
       let payload;
       if (form) payload = form;
       else if (body !== undefined) {
@@ -74,8 +79,18 @@ export function client(base) {
         payload = JSON.stringify(body);
       }
       const response = await fetch(base + path, { method, headers, body: payload });
-      const setCookie = response.headers.get('set-cookie');
-      if (setCookie) cookie = setCookie.split(';')[0];
+      const setCookies = response.headers.getSetCookie
+        ? response.headers.getSetCookie()
+        : [response.headers.get('set-cookie')].filter(Boolean);
+      for (const header of setCookies) {
+        const pair = header.split(';')[0];
+        const index = pair.indexOf('=');
+        if (index === -1) continue;
+        const name = pair.slice(0, index).trim();
+        const value = pair.slice(index + 1).trim();
+        if (!value || /expires=Thu, 01 Jan 1970/i.test(header)) jar.delete(name);
+        else jar.set(name, value);
+      }
       const text = await response.text();
       let data;
       try { data = JSON.parse(text); } catch { data = text; }

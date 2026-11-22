@@ -6,6 +6,7 @@ import { resolveSafe, requiresApproval } from '../src/lib/tools.js';
 import { hashPassword, verifyPassword, encrypt, decrypt } from '../src/lib/security.js';
 import { sanitizeTheme, sanitizeBranding } from '../src/lib/theme.js';
 import { buildSystemPrompt } from '../src/lib/agents.js';
+import { generateLocal, embedLocal, localModels, LOCAL_MODEL } from '../src/lib/local-model.js';
 
 test('chunkText splits long paragraphs and respects size', () => {
   const text = Array.from({ length: 30 }, (_, i) => `Sentence number ${i} contains useful details.`).join(' ');
@@ -55,6 +56,43 @@ test('theme and branding sanitizers strip unsafe content', () => {
   const branding = sanitizeBranding({ appName: '<img src=x>Peace', accent: 'red' });
   assert.ok(!branding.appName.includes('<'));
   assert.equal(branding.accent, '#7c5cff');
+});
+
+test('built-in local model chats, uses sources, math and tools offline', () => {
+  const system = buildSystemPrompt(
+    { persona: 'You are PeaceAi.', tools: { enabled: [] } },
+    { name: 'Harmony', branding: { appName: 'PeaceAi' } },
+    [{ documentName: 'manual.txt', chunkIndex: 0, text: 'The backup code is harmony42. Restore it from Settings.' }],
+  );
+  const greeting = generateLocal([{ role: 'system', content: system }, { role: 'user', content: 'hello' }]);
+  assert.match(greeting.content, /PeaceAi/);
+  assert.equal(greeting.toolCalls.length, 0);
+
+  const grounded = generateLocal([
+    { role: 'system', content: system },
+    { role: 'user', content: 'What is the backup code?' },
+  ]);
+  assert.match(grounded.content, /harmony42/);
+  assert.match(grounded.content, /manual\.txt/);
+
+  const math = generateLocal([{ role: 'user', content: '12 * (3 + 1)' }]);
+  assert.match(math.content, /48/);
+  assert.equal(generateLocal([{ role: 'user', content: 'What is your name?' }]).content.includes('Local'), true);
+
+  const tool = generateLocal(
+    [{ role: 'user', content: 'list files in src' }],
+    { tools: [{ function: { name: 'list_files' } }] },
+  );
+  assert.equal(tool.content, '');
+  assert.equal(tool.toolCalls[0].name, 'list_files');
+  assert.equal(tool.toolCalls[0].arguments.path, 'src');
+
+  assert.deepEqual(localModels(), [LOCAL_MODEL]);
+  const vectors = embedLocal(['harmony', 'harmony', 'different']);
+  assert.equal(vectors.length, 3);
+  assert.equal(vectors[0].length, 64);
+  assert.deepEqual(vectors[0], vectors[1]);
+  assert.notDeepEqual(vectors[0], vectors[2]);
 });
 
 test('system prompt includes persona, tenant and sources', () => {

@@ -54,11 +54,18 @@ async function bootstrap() {
 async function startGuest() {
   try {
     setGuestSession(await api('/api/guest/session', { method: 'POST' }));
-    updateBranding();
-    navigate('app/chat');
   } catch (err) {
+    // Never turn the home page into a login wall, even if the session call fails.
+    setGuestSession({
+      tenant: { name: 'PeaceAi', branding: { appName: 'PeaceAi', logoText: 'P', tagline: 'Intelligence, in harmony.' } },
+      guest: { enabled: true, basis: 'messages', limit: 10, remaining: 10 },
+      agent: { name: 'PeaceAi Assistant', icon: '✨' },
+    });
     toast(err.message, 'error');
   }
+  updateBranding();
+  location.replace('#/app/chat');
+  route();
 }
 
 async function route() {
@@ -66,9 +73,13 @@ async function route() {
   const path = currentPath();
 
   if (!state.me && !state.isGuest) {
-    if (path.startsWith('app/')) { location.replace('#/login'); return; }
-    state.authMode = path === 'register' ? 'register' : 'login';
-    renderAuth(state.authMode);
+    // The root of the app is always chat. Login is opt-in via the Sign in button.
+    if (path === 'login' || path === 'register') {
+      state.authMode = path === 'register' ? 'register' : 'login';
+      renderAuth(state.authMode);
+      return;
+    }
+    startGuest();
     return;
   }
 
@@ -249,8 +260,7 @@ function renderShell(view, seq) {
       menu.open = false;
       try { await api('/api/auth/logout', { method: 'POST' }); } catch { /* local logout still applies */ }
       clearSession();
-      location.replace('#/login');
-      route();
+      startGuest();
     });
     document.addEventListener('click', (event) => {
       if (menu.open && !menu.contains(event.target)) menu.open = false;

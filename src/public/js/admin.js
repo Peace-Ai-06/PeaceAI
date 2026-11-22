@@ -94,31 +94,40 @@ async function providersTab(host, container) {
     ${card('Model providers', 'Connections used by your agents.', table(
       ['Name', 'Kind', 'Base URL', 'API key', 'Enabled', 'Actions'],
       providers.map((p) => `<tr>
-        <td><strong>${escapeHtml(p.name)}</strong></td><td>${escapeHtml(p.kind)}</td>
+        <td><strong>${escapeHtml(p.name)}</strong>${p.isBuiltIn ? ' <span class="badge">Built-in</span>' : ''}</td><td>${escapeHtml(p.kind)}</td>
         <td class="muted mono">${escapeHtml(p.baseUrl || '—')}</td>
         <td><span class="badge ${p.hasApiKey ? 'badge-ok' : 'badge-warn'}">${p.hasApiKey ? 'Set' : 'None'}</span></td>
         <td><span class="badge ${p.enabled ? 'badge-ok' : ''}">${p.enabled ? 'Enabled' : 'Disabled'}</span></td>
         <td class="actions-cell">
           <button type="button" class="btn btn-sm" data-action="test-provider" data-id="${escapeHtml(p.id)}">${icons.test} Test</button>
           <button type="button" class="btn btn-sm" data-action="edit-provider" data-id="${escapeHtml(p.id)}">${icons.edit} Edit</button>
-          <button type="button" class="btn btn-sm btn-danger" data-action="delete-provider" data-id="${escapeHtml(p.id)}">${icons.trash}</button>
+          ${p.isBuiltIn ? '' : `<button type="button" class="btn btn-sm btn-danger" data-action="delete-provider" data-id="${escapeHtml(p.id)}">${icons.trash}</button>`}
         </td></tr>`)),
       `<button type="button" class="btn btn-sm btn-primary" data-action="show-provider-form">${icons.plus} Add provider</button>`)}
     <div id="provider-form-card" hidden>${card('Provider details', 'API keys are stored encrypted and never shown again.', `
       <form id="provider-form" class="form-grid">
         ${field('Name', input('name', 'text', '', 'required'))}
-        ${field('Kind', `<select name="kind" class="select"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="ollama">Ollama</option></select>`)}
-        ${field('Base URL', input('baseUrl', 'url', '', 'placeholder="https://api.openai.com/v1"'))}
-        ${field('API key', input('apiKey', 'password', '', 'autocomplete="off" placeholder="Leave blank to keep existing"'))}
+        ${field('Kind', `<select name="kind" class="select"><option value="local">PeaceAi Local (built-in, offline)</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="ollama">Ollama</option></select>`)}
+        <div data-provider-connection>
+          ${field('Base URL', input('baseUrl', 'url', '', 'placeholder="https://api.openai.com/v1"'))}
+          ${field('API key', input('apiKey', 'password', '', 'autocomplete="off" placeholder="Leave blank to keep existing"'))}
+        </div>
         <label class="check-line"><input type="checkbox" name="enabled" checked> Enabled</label>
         <div class="form-actions"><button type="submit" class="btn btn-primary">Save provider</button><button type="button" class="btn" data-action="hide-provider-form">Cancel</button></div>
       </form>`)}</div>`;
 
   const formCard = host.querySelector('#provider-form-card');
   const form = host.querySelector('#provider-form');
+  const connection = host.querySelector('[data-provider-connection]');
+  const syncConnectionFields = () => {
+    connection.hidden = form.elements.kind.value === 'local';
+  };
+  syncConnectionFields();
+  form.elements.kind.addEventListener('change', syncConnectionFields);
   host.querySelector('[data-action="show-provider-form"]').addEventListener('click', () => {
     form.reset(); form.removeAttribute('data-edit-id'); formCard.hidden = false;
     form.elements.enabled.checked = true;
+    syncConnectionFields();
   });
   host.querySelector('[data-action="hide-provider-form"]').addEventListener('click', () => { formCard.hidden = true; });
   form.addEventListener('submit', async (event) => {
@@ -147,6 +156,7 @@ async function providersTab(host, container) {
         form.elements.baseUrl.value = p.baseUrl || '';
         form.elements.apiKey.value = '';
         form.elements.enabled.checked = Boolean(p.enabled);
+        syncConnectionFields();
         form.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });
     } else if (action === 'test-provider') {
@@ -419,6 +429,50 @@ async function agentsTab(host, container) {
       agentsTab(host, container);
     } catch (err) { toast(err.message, 'error'); }
   }));
+}
+
+// --- Guest access ------------------------------------------------------------
+async function guestTab(host, container) {
+  host.innerHTML = stateBox('loading', 'Loading guest access');
+  const [res, agentsRes] = await Promise.all([
+    api('/api/admin/guest-access'),
+    api('/api/admin/agents'),
+  ]);
+  if (!isCurrent(container)) return;
+  const config = res.guestAccess || {};
+  const agents = agentsRes.agents || [];
+  host.innerHTML = card(
+    'Guest access',
+    'Let people chat immediately without an account, then ask them to sign in after the limit you choose.',
+    `<form id="guest-form" class="form-grid">
+      <label class="check-line"><input type="checkbox" name="enabled" ${config.enabled !== false ? 'checked' : ''}> Allow guest chat</label>
+      ${field('Count limit by', `<select name="basis" class="select">
+        <option value="messages" ${config.basis === 'messages' ? 'selected' : ''}>Messages sent</option>
+        <option value="sessions" ${config.basis === 'sessions' ? 'selected' : ''}>New conversations</option>
+        <option value="minutes" ${config.basis === 'minutes' ? 'selected' : ''}>Minutes since first message</option>
+      </select>`)}
+      ${field('Limit', input('limit', 'number', config.limit ?? 10, 'min="1" max="10000" step="1"'), 'e.g. 10 messages or 3 conversations')}
+      ${field('Guest assistant', `<select name="agentId" class="select"><option value="">Default assistant</option>${agents.map((a) => `<option value="${escapeHtml(a.id)}" ${a.id === config.agentId ? 'selected' : ''}>${escapeHtml(a.icon || '')} ${escapeHtml(a.name)}</option>`).join('')}</select>`, 'Guests only see this agent')}
+      <div class="form-actions"><button type="submit" class="btn btn-primary">Save guest settings</button></div>
+    </form>
+    <div id="guest-alert"></div>`,
+  );
+  host.querySelector('#guest-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const body = {
+      enabled: form.elements.enabled.checked,
+      basis: form.elements.basis.value,
+      limit: Number(form.elements.limit.value),
+      agentId: form.elements.agentId.value || null,
+    };
+    try {
+      const saved = await api('/api/admin/guest-access', { method: 'PUT', body });
+      host.querySelector('#guest-alert').innerHTML = `<div class="alert alert-success">Guest access saved. Guests can now use up to ${escapeHtml(saved.guestAccess.limit)} ${escapeHtml(saved.guestAccess.basis)} before signing in.</div>`;
+    } catch (err) {
+      host.querySelector('#guest-alert').innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
+    }
+  });
 }
 
 // --- Users ------------------------------------------------------------------

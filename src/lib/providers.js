@@ -1,11 +1,15 @@
 import { decrypt } from './security.js';
 import { ApiError } from './http.js';
+import { embedLocal, generateLocal, localModels } from './local-model.js';
 
 const DEFAULT_BASE = {
   openai: 'https://api.openai.com/v1',
   anthropic: 'https://api.anthropic.com/v1',
   ollama: 'http://127.0.0.1:11434',
+  local: '',
 };
+
+export const LOCAL_MODEL = 'peaceai-local';
 
 export function providerApiKey(provider) {
   return decrypt(provider.encryptedApiKey);
@@ -96,6 +100,7 @@ function normalizeToolCalls(calls = []) {
 /* ---------------------------------- models --------------------------------- */
 
 export async function listModels(provider) {
+  if (provider.kind === 'local') return localModels();
   if (provider.kind === 'ollama') {
     const response = await request(`${baseUrl(provider)}/api/tags`, { headers: headers(provider) });
     const data = await response.json();
@@ -113,6 +118,7 @@ export async function listModels(provider) {
 export async function embed(provider, model, input) {
   const texts = Array.isArray(input) ? input : [input];
   if (!texts.length) return [];
+  if (provider.kind === 'local') return embedLocal(texts);
   if (provider.kind === 'ollama') {
     const response = await request(`${baseUrl(provider)}/api/embed`, {
       method: 'POST',
@@ -395,8 +401,18 @@ async function ollamaChat(provider, options, onDelta) {
 
 /* --------------------------------- public API -------------------------------- */
 
+async function localChat(provider, options, onDelta) {
+  const result = generateLocal(options.messages || [], options);
+  if (options.stream && result.content) {
+    const pieces = result.content.match(/[\s\S]{1,18}/g) || [result.content];
+    for (const piece of pieces) onDelta?.(piece);
+  }
+  return { content: result.content, toolCalls: result.toolCalls || [], usage: { provider: 'local', model: LOCAL_MODEL } };
+}
+
 export async function chat(provider, options, onDelta) {
   if (!provider || !options.model) throw new ApiError(400, 'An agent needs an active provider and model', 'model_not_configured');
+  if (provider.kind === 'local') return localChat(provider, options, onDelta);
   if (provider.kind === 'ollama') return ollamaChat(provider, options, onDelta);
   if (provider.kind === 'anthropic') return anthropicChat(provider, options, onDelta);
   return openAIChat(provider, options, onDelta);

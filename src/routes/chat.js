@@ -6,6 +6,7 @@ import { asyncHandler, fail, optionalString } from '../lib/http.js';
 import { assertGuestAllowed, guestConfig, recordGuestMessage, recordGuestSession } from '../lib/guest.js';
 import { extractText, isSupportedFile } from '../lib/files.js';
 import { id } from '../lib/store.js';
+import { rateLimit } from '../lib/ratelimit.js';
 import {
   createConversation,
   getAgent,
@@ -16,6 +17,12 @@ import {
 
 export const chatRouter = Router();
 chatRouter.use(optionalAuth);
+chatRouter.use(rateLimit({
+  scope: 'chat',
+  limit: 60,
+  windowMs: 60_000,
+  keyFn: (req) => req.user?.id || req.guest?.id || req.ip,
+}));
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -116,7 +123,6 @@ chatRouter.post('/chat', asyncHandler(async (req, res) => {
 
 chatRouter.post('/chat/stream', asyncHandler(async (req, res) => {
   const { actor } = identity(req);
-  const { agent, conversation, message, attachments } = resolveChat(req, req.body || {});
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
@@ -125,6 +131,15 @@ chatRouter.post('/chat/stream', asyncHandler(async (req, res) => {
   const send = (event, data) => {
     if (!res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
+  let resolved;
+  try {
+    resolved = resolveChat(req, req.body || {});
+  } catch (error) {
+    send('error', { message: error.message || 'Request rejected', code: error.code || 'error' });
+    res.end();
+    return;
+  }
+  const { agent, conversation, message, attachments } = resolved;
   const ids = { userMessageId: id('msg_'), assistantMessageId: id('msg_') };
   send('meta', { conversationId: conversation.id, userMessageId: ids.userMessageId, assistantMessageId: ids.assistantMessageId });
   try {

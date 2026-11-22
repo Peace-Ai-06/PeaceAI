@@ -4,6 +4,8 @@ import { retrieve, indexAttachments } from './rag.js';
 import { buildSystemPrompt } from './agents.js';
 import { TOOL_DEFINITIONS, executeToolCall, requiresApproval, requestApproval } from './tools.js';
 import { ApiError } from './http.js';
+import { withKeyLock } from './lock.js';
+import { assertBudget, recordUsage } from './usage.js';
 
 const MAX_HISTORY = 24;
 
@@ -93,22 +95,36 @@ function appendToolMessage(conversation, call, result) {
   return message;
 }
 
-function allowedTools(agent) {
+function allowedTools(agent, user) {
+  // Guests are untrusted: never let a guest conversation invoke file or
+  // command tools, regardless of how the agent is configured.
+  if (!user || String(user.id || '').startsWith('guest_') || user.isGuest) return [];
   const enabled = new Set(agent.tools?.enabled || []);
   return TOOL_DEFINITIONS.filter((tool) => enabled.has(tool.function.name));
 }
 
-async function invokeModel({ tenant, agent, conversation, systemPrompt, stream, onDelta }) {
+async function invokeModel({ tenant, user, agent, conversation, systemPrompt, stream, onDelta }) {
   const provider = providerFor(tenant.id, agent.providerId);
   if (!provider) throw new ApiError(400, 'This agent has no active model provider. Ask an admin to configure one.', 'model_not_configured');
+  assertBudget(tenant);
   const result = await providerChat(provider, {
     model: agent.model,
     messages: prepareMessages(conversation, systemPrompt),
-    tools: allowedTools(agent),
+    tools: allowedTools(agent, user),
     temperature: agent.generation?.temperature ?? 0.6,
     maxTokens: agent.generation?.maxTokens || 2048,
     stream,
   }, onDelta);
+  recordUsage({
+    tenantId: tenant.id,
+    userId: user?.id?.startsWith?.('guest_') ? null : (user?.id || null),
+    agentId: agent.id,
+    conversationId: conversation.id,
+    providerId: provider.id,
+    model: agent.model,
+    usage: result.usage,
+    stream: Boolean(stream),
+  });
   return result;
 }
 
@@ -147,7 +163,7 @@ export async function handleToolCalls({ tenant, user, agent, conversation, calls
 
 export async function continueModel({ tenant, user, agent, conversation, sources = [], onEvent, stream = false, depth = 0, assistantMessageId }) {
   const systemPrompt = buildSystemPrompt(agent, tenant, sources);
-  const result = await invokeModel({ tenant, agent, conversation, systemPrompt, stream, onDelta: (text) => emit(onEvent, 'delta', { text }) });
+  const result = await invokeModel({ tenant, user, agent, conversation, systemPrompt, stream, onDelta: (text) => emit(onEvent, 'delta', { text }) });
   const assistant = appendAssistantMessage(conversation, result, sources, assistantMessageId);
   conversation.updatedAt = now();
   save();
@@ -158,7 +174,7 @@ export async function continueModel({ tenant, user, agent, conversation, sources
   return { assistant, toolCalls: result.toolCalls || [] };
 }
 
-export async function runChat({ tenant, user, agent, conversation, message, attachments = [], onEvent, stream = false, ids = {} }) {
+async function runChatUnlocked({ tenant, user, agent, conversation, message, attachments = [], onEvent, stream = false, ids = {} }) {
   if (message) appendUserMessage(conversation, message, ids.userMessageId);
   conversation.updatedAt = now();
   save();
@@ -174,6 +190,10 @@ export async function runChat({ tenant, user, agent, conversation, message, atta
 
   const result = await continueModel({ tenant, user, agent, conversation, sources, onEvent, stream, assistantMessageId: ids.assistantMessageId });
   return { conversation, reply: result.assistant.content, toolCalls: result.toolCalls, sources };
+}
+
+export function runChat(options) {
+  return withKeyLock(`conversation:${options.conversation?.id || id('tmp_')}`, () => runChatUnlocked(options));
 }
 
 export function sourcesFromConversation(conversation) {

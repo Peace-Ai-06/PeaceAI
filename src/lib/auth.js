@@ -1,5 +1,6 @@
 import { db, filter, find, insert, now, remove } from './store.js';
 import { randomToken, sign } from './security.js';
+
 import { ApiError } from './http.js';
 
 export const SESSION_COOKIE = 'peaceai_session';
@@ -22,7 +23,7 @@ export function setSessionCookie(res, token) {
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production' && process.env.HTTPS === 'true',
+    secure: process.env.COOKIE_SECURE === 'false' ? false : 'auto',
     maxAge,
   });
 }
@@ -31,7 +32,7 @@ export function setGuestCookie(res, token) {
   res.cookie(GUEST_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production' && process.env.HTTPS === 'true',
+    secure: process.env.COOKIE_SECURE === 'false' ? false : 'auto',
     maxAge: 7 * 24 * 3600 * 1000,
   });
 }
@@ -84,7 +85,7 @@ export function clearGuest(req, res) {
 }
 
 export function createSession(res, userId) {
-  const token = `${userId}.${Date.now().toString(36)}.${Math.random().toString(36).slice(2)}`;
+  const token = `${userId}.${randomToken(24)}`;
   insert('sessions', {
     id: token,
     token,

@@ -37,6 +37,21 @@ test('full flow: auth, RAG upload, provider, agent, tool approval, streaming and
   const me = await admin.request('GET', '/api/auth/me');
   assert.equal(me.data.user.email, 'owner@example.com');
 
+  // Home page works immediately: a built-in offline model is wired to guest chat.
+  const seededProviders = await admin.request('GET', '/api/admin/providers');
+  const builtIn = seededProviders.data.providers.find((item) => item.kind === 'local' && item.isBuiltIn);
+  assert.ok(builtIn, 'the built-in PeaceAi Local provider is seeded');
+  const seededAgents = await admin.request('GET', '/api/admin/agents');
+  const seededGuestAgent = seededAgents.data.agents.find((item) => item.isGuestDefault);
+  assert.equal(seededGuestAgent.providerId, builtIn.id);
+  assert.equal(seededGuestAgent.model, 'peaceai-local');
+
+  const firstGuest = client(base);
+  assert.equal((await firstGuest.request('POST', '/api/guest/session')).status, 201);
+  const firstReply = await firstGuest.request('POST', '/api/chat', { message: 'hello' });
+  assert.equal(firstReply.status, 200);
+  assert.match(firstReply.data.reply, /PeaceAi/);
+
   const provider = await admin.request('POST', '/api/admin/providers', {
     name: 'Mock', kind: 'openai', baseUrl: mock.url, apiKey: 'test-key', enabled: true,
   });
@@ -46,6 +61,15 @@ test('full flow: auth, RAG upload, provider, agent, tool approval, streaming and
 
   const models = await admin.request('POST', `/api/admin/providers/${provider.data.provider.id}/test`);
   assert.deepEqual(models.data.models, ['mock-model', 'mock-embed']);
+
+  // The default guest assistant needs a model before guests can chat.
+  const initialAgents = await admin.request('GET', '/api/admin/agents');
+  const guestAgent = initialAgents.data.agents.find((item) => item.isGuestDefault);
+  assert.ok(guestAgent, 'a default guest agent is created with the workspace');
+  const guestAgentUpdate = await admin.request('PUT', `/api/admin/agents/${guestAgent.id}`, {
+    ...guestAgent, providerId: provider.data.provider.id, model: 'mock-model',
+  });
+  assert.equal(guestAgentUpdate.status, 200);
 
   const kb = await admin.request('POST', '/api/admin/knowledge-bases', {
     name: ' handbook ', description: 'Internal handbook',
@@ -134,9 +158,9 @@ test('full flow: auth, RAG upload, provider, agent, tool approval, streaming and
     email: 'other@example.com', password: 'password123', name: 'Other', tenantName: 'Other Org',
   });
   assert.equal(otherRegister.status, 201);
-  assert.equal((await other.request('GET', '/api/agents')).data.agents.length, 0);
+  assert.equal((await other.request('GET', '/api/agents')).data.agents.length, 1);
   assert.equal((await other.request('GET', `/api/conversations/${chat.data.conversation.id}`)).status, 404);
-  assert.equal((await other.request('GET', '/api/admin/overview')).data.counts.agents, 0);
+  assert.equal((await other.request('GET', '/api/admin/overview')).data.counts.agents, 1);
 
   const memberCreated = await admin.request('POST', '/api/admin/users', {
     email: 'member@example.com', password: 'password123', name: 'Member', role: 'member',
@@ -147,6 +171,48 @@ test('full flow: auth, RAG upload, provider, agent, tool approval, streaming and
   assert.equal(loggedIn.status, 200);
   assert.equal((await member.request('GET', '/api/admin/overview')).status, 403);
   assert.equal((await member.request('GET', '/api/agents')).status, 200);
+
+  // Guest chat works before any login, using only the default agent.
+  const guest = client(base);
+  const guestSession = await guest.request('POST', '/api/guest/session');
+  assert.equal(guestSession.status, 201);
+  assert.equal(guestSession.data.isGuest, true);
+  assert.equal(guestSession.data.agent.id, guestAgent.id);
+  const guestChat = await guest.request('POST', '/api/chat', { message: 'Hello from guest' });
+  assert.equal(guestChat.status, 200);
+  assert.equal(guestChat.data.reply, 'Mock answer.');
+  assert.equal(guestChat.data.guest.remaining, 9);
+  assert.equal((await guest.request('GET', '/api/conversations')).data.conversations.length, 1);
+
+  // Admin-configured limit forces sign-in once reached.
+  const limitSave = await admin.request('PUT', '/api/admin/guest-access', { enabled: true, basis: 'messages', limit: 1 });
+  assert.equal(limitSave.status, 200);
+  const guest2 = client(base);
+  await guest2.request('POST', '/api/guest/session');
+  const firstGuestMessage = await guest2.request('POST', '/api/chat', { message: 'one' });
+  assert.equal(firstGuestMessage.status, 200);
+  const blocked = await guest2.request('POST', '/api/chat', { message: 'two' });
+  assert.equal(blocked.status, 403);
+  assert.equal(blocked.data.error.code, 'guest_limit_reached');
+
+  const blockedStream = await fetch(`${base}/api/chat/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: guest2.cookie },
+    body: JSON.stringify({ message: 'three' }),
+  });
+  const blockedEvents = parseSSE(await blockedStream.text());
+  assert.ok(blockedEvents.some((event) => event.event === 'error' && event.data.code === 'guest_limit_reached'));
+
+  // Signing up discards guest history and starts fresh.
+  const guest3 = client(base);
+  await guest3.request('POST', '/api/guest/session');
+  const guestConversation = await guest3.request('POST', '/api/chat', { message: 'before signup' });
+  const guestConversationId = guestConversation.data.conversation.id;
+  const signupAfterGuest = await guest3.request('POST', '/api/auth/register', {
+    email: 'converted@example.com', password: 'password123', name: 'Converted', tenantName: 'Converted Org',
+  });
+  assert.equal(signupAfterGuest.status, 201);
+  assert.equal((await guest3.request('GET', `/api/conversations/${guestConversationId}`)).status, 404);
 });
 
 function parseSSE(text) {

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { ensureGuestDefaults as seedGuestDefaults, find, filter, id, insert, logAudit, now, remove, update } from '../lib/store.js';
+import { db, ensureGuestDefaults as seedGuestDefaults, find, filter, id, insert, logAudit, now, remove, update } from '../lib/store.js';
 import { hashPassword, verifyPassword } from '../lib/security.js';
 import { clearGuest, createSession, publicTenant, publicUser, requireAuth, SESSION_COOKIE } from '../lib/auth.js';
 import { asyncHandler, fail, required } from '../lib/http.js';
@@ -17,13 +17,20 @@ authRouter.post('/register', asyncHandler((req, res) => {
   if (find('users', (u) => u.email === email)) fail(409, 'An account with that email already exists', 'conflict');
 
   const isFirst = filter('users', () => true).length === 0;
-  const tenant = {
-    id: id('ten_'),
-    name: tenantName,
-    slug: slugify(tenantName) + '-' + Math.random().toString(36).slice(2, 6),
-    branding: { ...DEFAULT_BRANDING, appName: tenantName },
-    createdAt: now(),
-  };
+  const guestWorkspace = find('tenants', (t) => t.id === db().meta.guestTenantId);
+  const claimGuestWorkspace = isFirst && guestWorkspace && filter('users', (u) => u.tenantId === guestWorkspace.id).length === 0;
+  const tenant = claimGuestWorkspace
+    ? update('tenants', guestWorkspace.id, {
+      name: tenantName,
+      branding: { ...DEFAULT_BRANDING, appName: tenantName },
+    })
+    : insert('tenants', {
+      id: id('ten_'),
+      name: tenantName,
+      slug: slugify(tenantName) + '-' + Math.random().toString(36).slice(2, 6),
+      branding: { ...DEFAULT_BRANDING, appName: tenantName },
+      createdAt: now(),
+    });
   const user = {
     id: id('usr_'),
     tenantId: tenant.id,
@@ -36,7 +43,6 @@ authRouter.post('/register', asyncHandler((req, res) => {
     theme: { ...DEFAULT_THEME },
     createdAt: now(),
   };
-  insert('tenants', tenant);
   insert('users', user);
   seedGuestDefaults();
   clearGuest(req, res);

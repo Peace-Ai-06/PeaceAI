@@ -29,7 +29,9 @@ function publicProvider(provider) {
 }
 
 function providerFields(body, existing = {}) {
-  const kind = ['openai', 'anthropic', 'ollama'].includes(body.kind) ? body.kind : existing.kind;
+  const kind = existing.isBuiltIn
+    ? 'local'
+    : (['openai', 'anthropic', 'ollama', 'local'].includes(body.kind) ? body.kind : existing.kind);
   if (!kind) fail(400, 'A provider kind is required', 'validation_error');
   const fields = {
     name: required(body.name ?? existing.name, 'provider name'),
@@ -120,6 +122,7 @@ adminRouter.put('/providers/:id', asyncHandler((req, res) => {
 adminRouter.delete('/providers/:id', (req, res) => {
   const existing = find('providers', (p) => p.id === req.params.id && p.tenantId === req.tenant.id);
   if (!existing) fail(404, 'Provider not found', 'not_found');
+  if (existing.isBuiltIn) fail(400, 'The built-in PeaceAi Local provider cannot be deleted; disable it instead.', 'validation_error');
   remove('providers', (p) => p.id === existing.id);
   for (const agent of filter('agents', (a) => a.tenantId === req.tenant.id)) {
     const patch = {};
