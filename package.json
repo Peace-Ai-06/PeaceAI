@@ -1,0 +1,22 @@
+{
+  "name": "peaceai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PeaceAi - a multi-tenant, admin-configurable coding and document AI built with Node.js only",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "mammoth": "^1.11.0",
+    "multer": "^2.0.2",
+    "pdf-parse": "^2.4.5"
+  }
+}

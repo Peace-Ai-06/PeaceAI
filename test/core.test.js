@@ -1,0 +1,70 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { chunkText } from '../src/lib/files.js';
+import { cosine } from '../src/lib/rag.js';
+import { resolveSafe, requiresApproval } from '../src/lib/tools.js';
+import { hashPassword, verifyPassword, encrypt, decrypt } from '../src/lib/security.js';
+import { sanitizeTheme, sanitizeBranding } from '../src/lib/theme.js';
+import { buildSystemPrompt } from '../src/lib/agents.js';
+
+test('chunkText splits long paragraphs and respects size', () => {
+  const text = Array.from({ length: 30 }, (_, i) => `Sentence number ${i} contains useful details.`).join(' ');
+  const chunks = chunkText(text, { size: 200, overlap: 20 });
+  assert.ok(chunks.length > 1);
+  for (const chunk of chunks) assert.ok(chunk.length <= 200);
+});
+
+test('cosine similarity handles identical, orthogonal and invalid vectors', () => {
+  assert.equal(cosine([1, 0, 0], [1, 0, 0]), 1);
+  assert.equal(cosine([1, 0], [0, 1]), 0);
+  assert.equal(cosine([1, 2], [1]), 0);
+});
+
+test('resolveSafe blocks traversal, hidden paths and absolute paths', () => {
+  const root = '/tmp/peaceai-sandbox';
+  assert.equal(resolveSafe(root, 'src/app.js'), `${root}/src/app.js`);
+  assert.equal(resolveSafe(root), root);
+  assert.throws(() => resolveSafe(root, '../secret'), /not allowed/);
+  assert.throws(() => resolveSafe(root, '.env'), /not allowed/);
+  assert.throws(() => resolveSafe(root, '/etc/passwd'), /not allowed/);
+});
+
+test('requiresApproval defaults sensitive tools to approval', () => {
+  const agent = { tools: { enabled: ['read_file', 'write_file'] } };
+  assert.equal(requiresApproval(agent, 'read_file'), false);
+  assert.equal(requiresApproval(agent, 'write_file'), true);
+  assert.equal(requiresApproval({ tools: { enabled: ['read_file'], approvalRequired: true } }, 'read_file'), true);
+});
+
+test('passwords and provider keys round-trip safely', () => {
+  const hash = hashPassword('correct horse battery');
+  assert.equal(verifyPassword('correct horse battery', hash), true);
+  assert.equal(verifyPassword('wrong', hash), false);
+  const encrypted = encrypt('sk-super-secret-key');
+  assert.notEqual(encrypted, 'sk-super-secret-key');
+  assert.equal(decrypt(encrypted), 'sk-super-secret-key');
+  assert.equal(decrypt('garbage'), '');
+});
+
+test('theme and branding sanitizers strip unsafe content', () => {
+  const theme = sanitizeTheme({ mode: 'light', accent: '#fff', customCss: '</style><script>alert(1)</script>body{}' });
+  assert.equal(theme.mode, 'light');
+  assert.equal(theme.accent, '#fff');
+  assert.ok(!theme.customCss.includes('<script'));
+  assert.ok(!theme.customCss.includes('</style>'));
+  const branding = sanitizeBranding({ appName: '<img src=x>Peace', accent: 'red' });
+  assert.ok(!branding.appName.includes('<'));
+  assert.equal(branding.accent, '#7c5cff');
+});
+
+test('system prompt includes persona, tenant and sources', () => {
+  const prompt = buildSystemPrompt(
+    { persona: 'Be terse.', tools: { enabled: ['read_file'] } },
+    { name: 'Acme', branding: { appName: 'PeaceAi' } },
+    [{ documentName: 'manual.txt', chunkIndex: 0, text: 'Secret word is harmony.' }],
+  );
+  assert.match(prompt, /Be terse/);
+  assert.match(prompt, /Acme/);
+  assert.match(prompt, /Secret word is harmony/);
+  assert.match(prompt, /read_file/);
+});
