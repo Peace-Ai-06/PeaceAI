@@ -36,9 +36,12 @@ async function readBody(res) {
  * - `body` is JSON encoded, `form` is sent as FormData (multipart).
  * - successful responses are returned as parsed JSON; failures throw ApiError.
  */
-export async function api(path, { method = 'GET', body, form, signal } = {}) {
-  const init = { method, credentials: 'same-origin', headers: { Accept: 'application/json' } };
-  if (signal) init.signal = signal;
+export async function api(path, { method = 'GET', body, form, signal, timeout = 25000 } = {}) {
+  const controller = new AbortController();
+  const timer = timeout > 0 ? setTimeout(() => controller.abort(new Error('timeout')), timeout) : null;
+  const onAbort = () => controller.abort(signal?.reason);
+  if (signal) signal.aborted ? controller.abort(signal.reason) : signal.addEventListener('abort', onAbort, { once: true });
+  const init = { method, credentials: 'same-origin', headers: { Accept: 'application/json' }, signal: controller.signal };
   if (form !== undefined && form !== null) {
     init.body = form; // browser sets the multipart boundary
   } else if (body !== undefined) {
@@ -50,7 +53,11 @@ export async function api(path, { method = 'GET', body, form, signal } = {}) {
   try {
     res = await fetch(path, init);
   } catch (err) {
-    throw new ApiError(err?.name === 'AbortError' ? 'Request cancelled' : (err?.message || 'Network request failed'), { code: 'network' });
+    const timedOut = err?.name === 'AbortError' && !signal?.aborted;
+    throw new ApiError(timedOut ? 'Request timed out' : err?.name === 'AbortError' ? 'Request cancelled' : (err?.message || 'Network request failed'), { code: timedOut ? 'timeout' : 'network' });
+  } finally {
+    if (timer) clearTimeout(timer);
+    signal?.removeEventListener?.('abort', onAbort);
   }
 
   if (res.status === 204) return { ok: true };

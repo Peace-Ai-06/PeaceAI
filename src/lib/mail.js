@@ -64,7 +64,20 @@ async function sendWebhook(message) {
   if (!response.ok) throw new Error(`Mail webhook returned HTTP ${response.status}`);
 }
 
+// Test hook: set PEACEAI_MAIL_TEST_HANDLER=module#export to delegate delivery.
+async function testHandler() {
+  const spec = process.env.PEACEAI_MAIL_TEST_HANDLER;
+  if (!spec) return null;
+  const [modulePath, exportName = 'default'] = spec.split('#');
+  const mod = await import(modulePath);
+  const handler = mod[exportName];
+  if (typeof handler !== 'function') throw new Error(`Mail test handler ${spec} is not a function`);
+  return handler;
+}
+
 export async function sendMail(message) {
+  const handler = await testHandler();
+  if (handler) return handler(message);
   const driver = mailDriver();
   if (driver === 'smtp') return sendSmtp(message);
   if (driver === 'webhook') return sendWebhook(message);

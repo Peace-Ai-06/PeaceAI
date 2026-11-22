@@ -12,6 +12,45 @@ Open <http://localhost:3000/#/login> (or click **Sign in** in the chat UI) and
 use the account email and password. After signing in, the user menu has
 **Settings → Change password** and, for admins, the **Admin** area.
 
+## Self-service "Forgot password"
+
+The login page has a **Forgot password?** link that posts to
+`POST /api/auth/forgot-password`. The API always returns the same message
+(`"If an account exists for that email, a reset link has been sent."`) so it
+does not reveal which emails are registered. Reset links go to
+`#/reset-password?token=...`, are single-use, expire after
+`PASSWORD_RESET_TTL_MINUTES` (default 30, min 5, max 1440), revoke all sessions
+when consumed, and invalidate previous unused tokens for the same account.
+
+Email delivery must be configured before reset links can be sent:
+
+```env
+# Where links point (recommended in production)
+PEACEAI_PUBLIC_URL=https://your-domain.example
+PASSWORD_RESET_TTL_MINUTES=30
+
+# SMTP
+PEACEAI_MAIL_DRIVER=smtp
+PEACEAI_MAIL_FROM=PeaceAi <no-reply@your-domain.example>
+PEACEAI_SMTP_HOST=smtp.example.com
+PEACEAI_SMTP_PORT=587
+PEACEAI_SMTP_SECURE=false
+PEACEAI_SMTP_USER=...
+PEACEAI_SMTP_PASS=...
+
+# Or: generic webhook, receives { from, to, subject, text }
+# PEACEAI_MAIL_DRIVER=webhook
+# PEACEAI_MAIL_WEBHOOK_URL=https://example.com/mail-hook
+# PEACEAI_MAIL_WEBHOOK_TOKEN=...
+
+# Dev only: print the email to the server log
+# PEACEAI_MAIL_DRIVER=console
+```
+
+If mail is not configured or delivery fails, the client still gets the generic
+success response and the server logs the delivery error for the operator. On a
+fresh or mail-less install, use the server-side CLI reset below.
+
 ## Create or reset an admin account from the server
 
 Use the bootstrap CLI on the machine that runs PeaceAi. It writes only a scrypt
@@ -47,7 +86,8 @@ sessions, which the running process needs to reload to see).
 ## Security behavior worth knowing
 
 - Changing a password revokes every *other* session for that user; the current session stays signed in.
-- Logout, account deletion, and password resets revoke sessions immediately.
+- Logout, account deletion, server-side password resets, and successful self-service password resets revoke sessions immediately.
+- Forgot-password and reset endpoints are rate-limited and return generic responses to prevent account enumeration.
 - Tampered session cookies and expired sessions are rejected.
 - `SESSION_HOURS` controls both the cookie lifetime and the server-side session expiry; invalid values fall back to 168 hours (7 days).
 - Set `PEACEAI_SECRET` to a long random value before real use so session signatures remain valid across restarts, and use TLS in production (`COOKIE_SECURE=auto` adds the Secure flag on HTTPS).

@@ -255,7 +255,7 @@ function showEmptyChat(container) {
   if (!messages) return;
   const agent = state.agents.find((a) => a.id === state.currentAgentId);
   messages.innerHTML = `<div class="chat-empty">
-    <div class="empty-glyph">${icons.spark}</div>
+    <div class="empty-glyph logo-glyph"><img src="/logo-mark.svg" alt="" class="empty-logo"></div>
     <h2>${agent ? 'What can I help with?' : 'Start a conversation'}</h2>
     <p class="muted">${agent ? `You're chatting with ${escapeHtml(agent.name)}. Ask anything, or try one of these:` : 'Select or create an agent to begin.'}</p>
     ${agent ? `<div class="suggestions">${SUGGESTIONS.map((item) => `

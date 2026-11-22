@@ -118,7 +118,7 @@ function renderAuth(mode) {
     <div class="auth-page">
       <div class="auth-card card">
         <div class="auth-brand">
-          <span class="brand-mark brand-mark-lg">P</span>
+          <img src="/logo-mark.svg" class="brand-logo brand-logo-lg" alt="">
           <div>
             <h1>PeaceAi</h1>
             <p class="muted">Your private, configurable AI workspace.</p>
@@ -182,6 +182,101 @@ function renderAuth(mode) {
   });
 }
 
+function renderForgotPassword() {
+  root.innerHTML = `
+    <div class="auth-page">
+      <div class="auth-card card">
+        <div class="auth-brand">
+          <img src="/logo-mark.svg" class="brand-logo brand-logo-lg" alt="">
+          <div>
+            <h1>Forgot password</h1>
+            <p class="muted">Enter your email and we'll send a reset link.</p>
+          </div>
+        </div>
+        <div id="auth-alert"></div>
+        <form id="forgot-form" class="form-stack" novalidate>
+          <label class="field"><span>Email</span><input name="email" type="email" autocomplete="email" placeholder="you@example.com" required></label>
+          <button type="submit" class="btn btn-primary btn-block" data-submit>Send reset link</button>
+        </form>
+        <p class="auth-foot muted"><button type="button" class="link-btn" data-nav="login">Back to sign in</button></p>
+      </div>
+    </div>`;
+  root.querySelector('[data-nav="login"]')?.addEventListener('click', () => { location.hash = '#/login'; });
+  root.querySelector('#forgot-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const alertBox = root.querySelector('#auth-alert');
+    const submit = event.currentTarget.querySelector('[data-submit]');
+    alertBox.innerHTML = '';
+    submit.disabled = true;
+    submit.textContent = 'Sending…';
+    try {
+      const result = await api('/api/auth/forgot-password', { method: 'POST', body: Object.fromEntries(new FormData(event.currentTarget)) });
+      alertBox.innerHTML = `<div class="alert alert-success" role="alert">${escapeHtml(result.message || 'If an account exists for that email, a reset link has been sent.')}</div>`;
+    } catch (err) {
+      alertBox.innerHTML = `<div class="alert alert-error" role="alert">${escapeHtml(err.message)}</div>`;
+    } finally {
+      submit.disabled = false;
+      submit.textContent = 'Send reset link';
+    }
+  });
+}
+
+function renderResetPassword() {
+  const token = new URLSearchParams(location.hash.split('?')[1] || '').get('token') || '';
+  root.innerHTML = `
+    <div class="auth-page">
+      <div class="auth-card card">
+        <div class="auth-brand">
+          <img src="/logo-mark.svg" class="brand-logo brand-logo-lg" alt="">
+          <div>
+            <h1>Reset password</h1>
+            <p class="muted">Choose a new password for your account.</p>
+          </div>
+        </div>
+        <div id="auth-alert"></div>
+        ${token ? `
+          <form id="reset-form" class="form-stack" novalidate>
+            <label class="field"><span>New password</span><input name="password" type="password" autocomplete="new-password" placeholder="At least 8 characters" required minlength="8"></label>
+            <label class="field"><span>Confirm password</span><input name="confirm" type="password" autocomplete="new-password" placeholder="Re-enter password" required minlength="8"></label>
+            <button type="submit" class="btn btn-primary btn-block" data-submit>Reset password</button>
+          </form>
+        ` : `<div class="alert alert-error" role="alert">This reset link is missing a token. Request a new one.</div>`}
+        <p class="auth-foot muted">
+          <button type="button" class="link-btn" data-nav="forgot-password">Request a new link</button>
+          <span class="muted"> · </span>
+          <button type="button" class="link-btn" data-nav="login">Back to sign in</button>
+        </p>
+      </div>
+    </div>`;
+  root.querySelectorAll('[data-nav]').forEach((button) => {
+    button.addEventListener('click', () => { location.hash = `#/${button.dataset.nav}`; });
+  });
+  root.querySelector('#reset-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const alertBox = root.querySelector('#auth-alert');
+    const submit = event.currentTarget.querySelector('[data-submit]');
+    const body = Object.fromEntries(new FormData(event.currentTarget));
+    alertBox.innerHTML = '';
+    if (body.password !== body.confirm) {
+      alertBox.innerHTML = '<div class="alert alert-error" role="alert">Passwords do not match.</div>';
+      return;
+    }
+    submit.disabled = true;
+    submit.textContent = 'Resetting…';
+    try {
+      const result = await api('/api/auth/reset-password', { method: 'POST', body: { token, password: body.password } });
+      alertBox.innerHTML = `<div class="alert alert-success" role="alert">${escapeHtml(result.message || 'Password updated. Please sign in.')}</div>`;
+      event.currentTarget.reset();
+      setTimeout(() => { location.hash = '#/login'; }, 900);
+    } catch (err) {
+      alertBox.innerHTML = `<div class="alert alert-error" role="alert">${escapeHtml(err.message)}</div>`;
+    } finally {
+      submit.disabled = false;
+      submit.textContent = 'Reset password';
+    }
+  });
+}
+
 // --- App shell --------------------------------------------------------------
 function renderShell(view, seq) {
   const branding = state.tenant?.branding || {};
@@ -194,7 +289,7 @@ function renderShell(view, seq) {
     <header class="topbar">
       <button type="button" class="icon-btn mobile-menu" data-action="toggle-sidebar" aria-label="Toggle navigation">${icons.menu}</button>
       <div class="brand">
-        <span class="brand-mark" data-logo-text>${escapeHtml(branding.logoText || 'P')}</span>
+        <img src="/logo-mark.svg" class="brand-logo" alt="">
         <span class="brand-name" data-app-name>${escapeHtml(branding.appName || 'PeaceAi')}</span>
       </div>
       <div class="topbar-spacer"></div>

@@ -13,6 +13,8 @@ Every resource is scoped to the authenticated user's tenant. `admin` role is req
 | POST | `/api/auth/login` | `{ email, password }` | `{ user, tenant }` + cookie |
 | POST | `/api/auth/logout` | - | `{ ok: true }` |
 | GET | `/api/auth/me` | - | `{ user, tenant }` |
+| POST | `/api/auth/forgot-password` | `{ email }` | `{ ok: true, message }` (generic response; no account enumeration) |
+| POST | `/api/auth/reset-password` | `{ token, password }` | `{ ok: true, message }` or 400 invalid/expired token |
 | POST | `/api/auth/change-password` | `{ currentPassword, newPassword }` | `{ ok: true }` |
 | PUT | `/api/me/theme` | `{ theme }` | `{ user }` |
 
