@@ -11,10 +11,10 @@ const workspacesDir = path.join(dataDir, 'workspaces');
 const COLLECTIONS = [
   'tenants', 'users', 'sessions', 'guests', 'providers', 'knowledgeBases',
   'documents', 'agents', 'conversations', 'pendingApprovals', 'audit',
-  'usage', 'feedback', 'apiKeys',
+  'usage', 'feedback', 'apiKeys', 'workflows', 'passwordResets',
 ];
 
-const EMPTY_META = { version: 4, createdAt: new Date().toISOString(), guestTenantId: null };
+const EMPTY_META = { version: 5, createdAt: new Date().toISOString(), guestTenantId: null };
 
 let state = null;
 let sql = null;
@@ -122,8 +122,8 @@ export function runMigrations() {
     if (!Array.isArray(state[name])) { state[name] = []; changed = true; }
   }
   if (!state.meta || typeof state.meta !== 'object') { state.meta = structuredClone(EMPTY_META); changed = true; }
-  if (typeof state.meta.version !== 'number' || state.meta.version < 4) {
-    state.meta.version = 4;
+  if (typeof state.meta.version !== 'number' || state.meta.version < 5) {
+    state.meta.version = 5;
     changed = true;
   }
   if (changed) save();
@@ -161,7 +161,7 @@ export function ensureGuestDefaults() {
       id: id('ten_'),
       name: 'PeaceAi',
       slug: 'peaceai',
-      branding: { appName: 'PeaceAi', logoText: 'P', accent: '#7c5cff', tagline: 'Intelligence, in harmony.' },
+      branding: { appName: 'PeaceAi', logoText: 'P', accent: '#8b7bff', tagline: 'Intelligence, in harmony.' },
       createdAt: now(),
     };
     state.tenants.push(tenant);
@@ -186,7 +186,7 @@ export function ensureGuestDefaults() {
         name: 'PeaceAi Assistant',
         description: 'Default guest assistant',
         icon: '✨',
-        accent: '#7c5cff',
+        accent: '#8b7bff',
         persona: 'You are PeaceAi, a helpful, precise and friendly assistant. Answer directly, ask clarifying questions when needed, and keep replies clear and useful.',
         providerId: null,
         model: '',

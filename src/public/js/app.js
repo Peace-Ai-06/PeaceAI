@@ -83,8 +83,10 @@ async function route() {
   const path = currentPath();
 
   // Auth screens are opt-in (topbar "Sign in"), never the app's starting page.
-  if (path === 'login' || path === 'register') {
+  if (path === 'login' || path === 'register' || path === 'forgot-password' || path === 'reset-password') {
     if (state.me) { goChat(); return; }
+    if (path === 'forgot-password') { renderForgotPassword(); return; }
+    if (path === 'reset-password') { renderResetPassword(); return; }
     state.authMode = path === 'register' ? 'register' : 'login';
     renderAuth(state.authMode);
     return;
@@ -134,6 +136,7 @@ function renderAuth(mode) {
           ` : ''}
           <label class="field"><span>Email</span><input name="email" type="email" autocomplete="email" placeholder="you@example.com" required></label>
           <label class="field"><span>Password</span><input name="password" type="password" autocomplete="${isRegister ? 'new-password' : 'current-password'}" placeholder="At least 8 characters" required minlength="8"></label>
+          ${!isRegister ? '<div class="auth-inline"><button type="button" class="link-btn" data-nav="forgot-password">Forgot password?</button></div>' : ''}
           <button type="submit" class="btn btn-primary btn-block" data-submit>${isRegister ? 'Create workspace' : 'Sign in'}</button>
         </form>
         <button type="button" class="btn btn-block" data-action="continue-guest" style="margin-top:.75rem">Continue as guest — no sign in needed</button>
@@ -152,6 +155,7 @@ function renderAuth(mode) {
     });
   });
 
+  root.querySelector('[data-nav="forgot-password"]')?.addEventListener('click', () => { location.hash = '#/forgot-password'; });
   root.querySelector('[data-action="continue-guest"]')?.addEventListener('click', startGuest);
 
   const form = root.querySelector('#auth-form');

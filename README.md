@@ -9,17 +9,19 @@ PeaceAi is a self-hosted, multi-tenant AI workspace built entirely with Node.js 
 - **Three-in-one experience**: conversational chat, document Q&A, and a coding agent that can list/read/search/write files and run allowlisted commands.
 - **Works out of the box**: a built-in `peaceai-local` engine answers chat, greetings, math and document questions with zero setup, no API key and no network.
 - **Admin-controlled model setup**: switch any agent to OpenAI-compatible, Anthropic, or local Ollama providers. Choose the provider and model for every agent. API keys are encrypted at rest.
-- **RAG over uploads**: PDF, DOCX, Markdown, text, JSON, CSV, HTML and source files are parsed, structure-aware chunked (with heading sections and overlap), and indexed in SQLite. Hybrid lexical + vector retrieval with a second-pass rerank; falls back to lexical when embeddings are unavailable.
+- **RAG over uploads**: PDF, DOCX, Markdown, text, JSON, CSV, HTML and source files are parsed, structure-aware chunked (with heading sections and overlap), and indexed in SQLite. Hybrid lexical + vector retrieval with heuristic reranking, optional OCR for scanned PDFs, and optional model-based cross-encoder reranking; falls back to lexical when embeddings are unavailable.
 - **Agent templates**: General Assistant, Code Partner, Research Librarian, Technical Writer, Support Desk, Data Analyst.
 - **Multi-tenant isolation**: every tenant has its own providers, documents, agents, conversations, audit log, and file sandbox.
 - **Unique per user**: per-user themes (mode, accent, font, density, sidebar, scoped custom CSS) layered on top of tenant branding, plus conversation-aware, non-repetitive answers.
 - **Safe tools**: paths are sandboxed, hidden/parent paths are rejected, commands are allowlisted, write/edit/run tools require click-to-approve, and commands run in a bubblewrap namespace with CPU/time/output caps when available. Guest sessions never get tools.
 - **Streaming**: SSE chat with live tokens, source panels, and interactive tool approval cards.
+- **Multi-agent workflows**: chain up to 8 agents in sequence, passing each step's output to the next. Run from the API or as MCP tools, with per-step SSE events.
+- **Shareable agent links**: publish any agent as a branded public chat page with a hard message/session quota. Visitors never see your persona, tools, or workspace.
 - **Node.js only**: Express backend, vanilla HTML/CSS/JS frontend, built-in `node:sqlite` persistence — no Python, no native database module, no frontend build step.
 
 ## Quick start
 
-Requirements: Node.js 22.5+ (tested on Node 26) for built-in `node:sqlite`. Optional: bubblewrap (`bwrap`) + `prlimit` for OS-level command isolation, Ollama or a hosted API key for larger models — the built-in offline model needs neither.
+Requirements: Node.js 22.5+ (tested on Node 26) for built-in `node:sqlite`. Optional: bubblewrap (`bwrap`) + `prlimit` for OS-level command isolation; `pdftoppm` + `tesseract` for OCR of scanned PDFs; Ollama or a hosted API key for larger models — the built-in offline model needs neither.
 
 ```bash
 cd "PeaceAi"
@@ -76,18 +78,25 @@ src/
     http.js            errors and validation helpers
     providers.js       Local / OpenAI / Anthropic / Ollama chat, streaming, embeddings, model listing
     local-model.js     built-in offline assistant, deterministic embeddings, tool intents
-    files.js           PDF/DOCX/text extraction and chunking
-    rag.js             vector + lexical retrieval
+    files.js           PDF/DOCX/text extraction and structure-aware chunking
+    ocr.js             optional scanned-PDF OCR via poppler + tesseract
+    rag.js             hybrid vector + lexical retrieval, heuristic and model reranking
+    providers.js       Local / OpenAI / Anthropic / Ollama chat, embeddings, reranking
     tools.js           sandboxed coding tools and approval queue
+    sandbox.js         optional bubblewrap namespace isolation
     agents.js          agent templates and system prompt builder
     chat.js            conversation orchestration, tool loop, streaming events
     guest.js           guest limits and default-agent resolution
+    workflows.js       multi-agent workflow orchestration
+    share.js           shareable agent link tokens and quotas
+    usage.js           token/cost recording and budget checks
+    apikeys.js         scoped API key creation and verification
     theme.js           theme/branding sanitizers
-  routes/              auth, guest, admin, agents, chat, tools, platform
-  public/              vanilla HTML/CSS/JS SPA
+  routes/              auth, guest, admin, agents, chat, tools, platform, mcp, keys, insights, workflows, share
+  public/              vanilla HTML/CSS/JS SPA + share.html
 test/                  node:test unit + integration tests with a mock model provider
 docs/API.md            HTTP API contract
-data/                  created at runtime (gitignored): db.json, secret, workspaces/
+data/                  created at runtime (gitignored): peaceai.sqlite, secret, workspaces/
 ```
 
 ## Security notes
@@ -102,7 +111,7 @@ data/                  created at runtime (gitignored): db.json, secret, workspa
 - SQLite persistence suits single-instance deployments; multi-node scale would need a shared database or a replicated engine.
 - No model fine-tuning/training (see note above).
 - Vector search is an in-process cosine scan — fine for thousands of chunks, not for millions.
-- Only text-extractable PDFs are useful; scanned PDFs need OCR outside PeaceAi.
+- Scanned PDFs need `pdftoppm` and `tesseract` installed for OCR; otherwise only their existing text layer is indexed.
 
 ## API
 
@@ -110,13 +119,14 @@ See [`docs/API.md`](docs/API.md) for all endpoints, payloads, and SSE events.
 
 ## MCP hub, API keys, usage and feedback
 
-- **MCP endpoint** — `POST /api/mcp` speaks JSON-RPC 2.0 (`initialize`, `ping`, `tools/list`, `tools/call`). Every agent in the workspace is exposed as an MCP tool, so Claude Desktop, Cursor and other MCP clients can call your agents directly. Authenticate with a workspace API key.
+- **MCP endpoint** — `POST /api/mcp` speaks JSON-RPC 2.0 (`initialize`, `ping`, `tools/list`, `tools/call`). Every agent and every enabled workflow in the workspace is exposed as an MCP tool, so Claude Desktop, Cursor and other MCP clients can call them directly. Authenticate with a workspace API key.
 - **API keys** — admins create scoped keys (`chat`, `agents`, `mcp`) via `POST /api/admin/api-keys`. The token is shown once; only its hash and prefix are stored. Keys can be revoked instantly.
 - **Usage & budgets** — token usage returned by providers is recorded per request. Admins can see totals by model/day and set monthly token or cost budgets (`PUT /api/admin/limits`). Exceeding a budget returns HTTP 429.
 - **Feedback** — `POST /api/feedback` stores a 1–5 rating for an assistant message; admins get summaries in `/api/admin/feedback/summary`.
 - **Rate limits** — auth, guest, chat and MCP endpoints have in-process sliding-window limits. Multi-node deployments should replace this with a shared limiter.
 - **Storage hardening** — forward-only schema migrations run on startup, and chat turns are serialized per conversation so concurrent requests cannot overwrite each other.
-- **Docker & CI** — `docker build -t peaceai . && docker run -p 3000:3000 -v peaceai-data:/app/data peaceai`. GitHub Actions runs `npm test` on Node 20 and 22.
+- **Workflows & share links** — admins chain agents into named workflows (`POST /api/admin/workflows`) and publish agents as branded public links (`POST /api/admin/agents/:id/share`) with a hard usage quota.
+- **Docker & CI** — `docker build -t peaceai . && docker run -p 3000:3000 -v peaceai-data:/app/data peaceai`. The image includes bubblewrap and OCR binaries. GitHub Actions runs `npm test` on Node 22 and 24.
 
 > Guests never receive file or command tools, regardless of the agent's tool configuration.
 
@@ -125,4 +135,6 @@ See [`docs/API.md`](docs/API.md) for all endpoints, payloads, and SSE events.
 - On first start, an existing `data/db.json` is imported into `data/peaceai.sqlite` and renamed `db.json.migrated`. Vectors are moved out of documents into an indexed `chunks` table.
 - `PEACEAI_SANDBOX=auto|bwrap|none` controls command isolation. `auto` uses bubblewrap when installed and warns if it has to fall back; `bwrap` requires it and fails closed.
 - `PEACEAI_TOOL_TIMEOUT_MS` and `PEACEAI_TOOL_MAX_OUTPUT` cap command runtime and output. Commands get a minimal environment, a killed process group on timeout, and (when `prlimit` exists) a 512 MB address-space and 64-process limit.
-- Sources returned by retrieval now include a `section` label taken from Markdown headings when present.
+- Sources returned by retrieval include a `section` label taken from Markdown headings when present.
+- `PEACEAI_OCR=auto|on|off` controls scanned-PDF OCR (`on` fails the upload when the binaries are missing). `PEACEAI_OCR_LANG` sets the tesseract language and `PEACEAI_OCR_PAGES` caps pages (default 12).
+- Set an agent's `rerankModel` (and optionally `rerankProviderId`) to use any chat-capable model as a cross-encoder: it scores the top 12 candidates and the result is blended 50/50 with the hybrid score. Failures never break retrieval. `GET /api/health` reports OCR availability.

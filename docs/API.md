@@ -8,7 +8,7 @@ Every resource is scoped to the authenticated user's tenant. `admin` role is req
 
 | Method | Path | Body | Response |
 | --- | --- | --- | --- |
-| GET | `/api/health` | - | `{ ok: true, version, time, storage:'sqlite', sandbox:{mode,isolated,required,resourceLimits} }` |
+| GET | `/api/health` | - | `{ ok: true, version, time, storage:'sqlite', sandbox:{mode,isolated,required,resourceLimits}, ocr:{enabled,required,pdftoppm,tesseract,ready} }` |
 | POST | `/api/auth/register` | `{ email, password, name, tenantName }` | `{ user, tenant }` + cookie |
 | POST | `/api/auth/login` | `{ email, password }` | `{ user, tenant }` + cookie |
 | POST | `/api/auth/logout` | - | `{ ok: true }` |
@@ -147,7 +147,37 @@ API keys authenticate with `Authorization: Bearer <token>`. Only a SHA-256 hash 
 | --- | --- | --- |
 | `initialize` | - | `{ protocolVersion, capabilities:{tools:{}}, serverInfo }` |
 | `ping` | - | `{}` |
-| `tools/list` | - | `{ tools: [{ name:'peaceai_<agentId>', description, inputSchema }] }` |
+| `tools/list` | - | `{ tools: [{ name:'peaceai_<agentId>' or 'peaceai_wf_<workflowId>', description, inputSchema }] }` |
 | `tools/call` | `{ name, arguments:{ message, conversationId? } }` | `{ content:[{type:'text',text}], isError, conversationId }` |
 
 Errors use JSON-RPC codes: `-32601` unknown method, `-32602` invalid params, `-32603` internal error. Budget limits apply to MCP calls as well.
+
+Agent fields additionally accept `rerankProviderId` and `rerankModel`. When both resolve to a chat-capable provider, the top 12 retrieval candidates are scored by that model and blended 50/50 with the hybrid score.
+
+## Multi-agent workflows
+
+| Method | Path | Body | Response |
+| --- | --- | --- | --- |
+| GET | `/api/admin/workflows` | - | `{ workflows: [Workflow] }` |
+| POST | `/api/admin/workflows` | `{ name, description?, enabled?, steps:[{agentId,instruction?}] }` | `{ workflow }` |
+| PUT | `/api/admin/workflows/:id` | same fields | `{ workflow }` |
+| DELETE | `/api/admin/workflows/:id` | - | `{ ok: true }` |
+| GET | `/api/workflows` | - | `{ workflows: [...] }` — enabled only |
+| GET | `/api/workflows/:id` | - | `{ workflow }` |
+| POST | `/api/workflows/:id/run` | `{ message }` | `{ reply, steps:[{index,agentId,agentName,conversationId,output,sources}], conversationId, error }` |
+| POST | `/api/workflows/:id/run/stream` | `{ message }` | SSE: `workflow_step`, plus chat `delta`/`sources`/`message`/`tool` events, then `done` or `error` |
+
+A workflow runs at most 8 steps. Each step receives the original message plus the previous step's output. Tenant isolation is enforced on every `agentId`.
+
+## Shareable agent links
+
+| Method | Path | Body | Response |
+| --- | --- | --- | --- |
+| POST | `/api/admin/agents/:id/share` | `{ limit?, basis:'messages'\|'sessions' }` | `{ agent, token, shareUrl:'/share/<token>' }` |
+| DELETE | `/api/admin/agents/:id/share` | - | `{ ok: true }` |
+| GET | `/api/share/:token` | - | `{ agent: {id,name,description,icon,accent,tenant,limits}, isShared:true }` |
+| POST | `/api/share/:token/session` | - | `{ agent, remaining:{basis,limit,used,remaining}, isShared:true }` + guest cookie |
+| POST | `/api/share/:token/chat` | `{ message }` | `{ reply, sources, conversationId, remaining }` |
+| POST | `/api/share/:token/chat/stream` | `{ message }` | SSE: `meta`, chat events, then `done` |
+
+Shared visitors are guests: they get no tools, and the public payload omits the persona and provider details. Exceeding the quota returns `403 { error: { code:'share_limit_reached' } }`. The browser page is served at `/share/:token`.

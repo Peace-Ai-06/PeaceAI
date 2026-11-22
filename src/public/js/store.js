@@ -66,7 +66,7 @@ export function clearSession() {
 
 const THEME_DEFAULTS = {
   mode: 'dark',
-  accent: '#7c9cff',
+  accent: '#8b7bff',
   font: 'system',
   density: 'comfortable',
   sidebar: 'left',

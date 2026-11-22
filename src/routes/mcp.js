@@ -4,6 +4,7 @@ import { requireApiKey, requireScope } from '../lib/apikeys.js';
 import { asyncHandler } from '../lib/http.js';
 import { createConversation, getAgent, runChat } from '../lib/chat.js';
 import { assertBudget } from '../lib/usage.js';
+import { findWorkflow, runWorkflow, workflowsFor } from '../lib/workflows.js';
 
 export const mcpRouter = Router();
 mcpRouter.use(requireApiKey, requireScope('mcp'));
@@ -52,15 +53,44 @@ async function dispatch(req) {
 
   if (method === 'tools/list') {
     const agents = filter('agents', (agent) => agent.tenantId === tenantId);
-    return ok(id, { tools: agents.map(toolFor) });
+    const workflows = workflowsFor(tenantId).filter((item) => item.enabled !== false);
+    return ok(id, {
+      tools: [
+        ...agents.map(toolFor),
+        ...workflows.map((workflow) => ({
+          name: `peaceai_wf_${workflow.id.replace(/[^a-zA-Z0-9_-]/g, '')}`,
+          description: `Workflow: ${workflow.name} — ${workflow.steps?.length || 0} agents working in sequence`.slice(0, 400),
+          inputSchema: {
+            type: 'object',
+            properties: { message: { type: 'string', description: 'The request to run through the workflow' } },
+            required: ['message'],
+          },
+        })),
+      ],
+    });
   }
 
   if (method === 'tools/call') {
-    const agent = agentForTool(tenantId, params.name);
-    if (!agent) return error(id, -32602, `Unknown tool: ${params.name}`);
     const message = typeof params.arguments?.message === 'string' ? params.arguments.message.trim() : '';
     if (!message) return error(id, -32602, 'message is required');
     assertBudget(req.tenant);
+
+    const workflow = String(params.name || '').startsWith('peaceai_wf_')
+      ? findWorkflow(tenantId, String(params.name).replace(/^peaceai_wf_/, ''))
+      : null;
+    if (workflow) {
+      const result = await runWorkflow({ tenant: req.tenant, user: req.user, workflow, message });
+      return ok(id, {
+        content: [{
+          type: 'text',
+          text: result.steps.map((step) => `[${step.agentName}]\n${step.output}`).join('\n\n') || result.reply,
+        }],
+        isError: Boolean(result.error),
+      });
+    }
+
+    const agent = agentForTool(tenantId, params.name);
+    if (!agent) return error(id, -32602, `Unknown tool: ${params.name}`);
     const conversation = params.arguments.conversationId
       ? find('conversations', (item) => item.id === params.arguments.conversationId && item.tenantId === tenantId && item.agentId === agent.id)
       : null;

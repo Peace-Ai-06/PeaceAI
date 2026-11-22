@@ -16,6 +16,9 @@ import { keysRouter } from './routes/keys.js';
 import { mcpRouter } from './routes/mcp.js';
 import { rateLimit } from './lib/ratelimit.js';
 import { sandboxInfo } from './lib/sandbox.js';
+import { ocrAvailability } from './lib/ocr.js';
+import { shareAdminRouter, shareRouter } from './routes/share.js';
+import { workflowsAdminRouter, workflowsRouter } from './routes/workflows.js';
 
 const publicDir = path.resolve('src/public');
 
@@ -28,7 +31,7 @@ export function createApp() {
   app.use(express.urlencoded({ extended: true, limit: '4mb' }));
 
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, version: '0.1.0', time: now(), storage: 'sqlite', sandbox: sandboxInfo() });
+    res.json({ ok: true, version: '0.1.0', time: now(), storage: 'sqlite', sandbox: sandboxInfo(), ocr: ocrAvailability() });
   });
 
   app.use('/api/auth', rateLimit({ scope: 'auth', limit: 10, windowMs: 60_000 }), authRouter);
@@ -37,12 +40,16 @@ export function createApp() {
   app.use('/api/me', insightsRouter);
   app.use('/api/admin', adminRouter);
   app.use('/api/admin', adminInsightsRouter);
+  app.use('/api/admin', shareAdminRouter);
+  app.use('/api/admin/workflows', workflowsAdminRouter);
   app.use('/api/admin/api-keys', keysRouter);
   app.use('/api/templates', templatesRouter);
   app.use('/api/agents', agentsRouter);
   app.use('/api/feedback', feedbackRouter());
   // Mount MCP before the catch-all chat router so its API-key auth applies.
   app.use('/api/mcp', rateLimit({ scope: 'mcp', limit: 120, windowMs: 60_000 }), mcpRouter);
+  app.use('/api/share', rateLimit({ scope: 'share', limit: 40, windowMs: 60_000 }), shareRouter);
+  app.use('/api/workflows', workflowsRouter);
   app.use('/api', chatRouter);
   app.use('/api/tools', toolsRouter);
   app.use('/api/platform', platformRouter);
@@ -50,6 +57,8 @@ export function createApp() {
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: { code: 'not_found', message: 'API route not found' } });
   });
+
+  app.get('/share/:token', (_req, res) => res.sendFile(path.join(publicDir, 'share.html')));
 
   // No aggressive caching: frontend changes must appear on a normal refresh.
   app.use(express.static(publicDir, {

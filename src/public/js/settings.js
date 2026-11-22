@@ -10,7 +10,7 @@ function themeFormHtml(theme) {
     <form id="theme-form" class="form-stack">
       <div class="form-grid">
         <label class="field"><span>Appearance</span>${select('mode', [['dark', 'Dark'], ['light', 'Light']])}</label>
-        <label class="field"><span>Accent colour</span><input name="accent" id="theme-accent" type="color" value="${escapeHtml(/^#[0-9a-f]{6}$/i.test(theme.accent || '') ? theme.accent : '#7c9cff')}"></label>
+        <label class="field"><span>Accent colour</span><input name="accent" id="theme-accent" type="color" value="${escapeHtml(/^#[0-9a-f]{6}$/i.test(theme.accent || '') ? theme.accent : '#8b7bff')}"></label>
         <label class="field"><span>Font</span>${select('font', [['system', 'System UI'], ['serif', 'Serif'], ['mono', 'Monospace'], ['rounded', 'Rounded']])}</label>
         <label class="field"><span>Density</span>${select('density', [['comfortable', 'Comfortable'], ['compact', 'Compact']])}</label>
         <label class="field"><span>Sidebar</span>${select('sidebar', [['left', 'Left'], ['right', 'Right']])}</label>

@@ -1,6 +1,6 @@
 export const DEFAULT_THEME = {
   mode: 'dark',
-  accent: '#7c5cff',
+  accent: '#8b7bff',
   font: 'system',
   density: 'comfortable',
   sidebar: 'left',
@@ -10,7 +10,7 @@ export const DEFAULT_THEME = {
 export const DEFAULT_BRANDING = {
   appName: 'PeaceAi',
   logoText: 'P',
-  accent: '#7c5cff',
+  accent: '#8b7bff',
   tagline: 'Intelligence, in harmony.',
 };
 
@@ -20,7 +20,7 @@ export function sanitizeTheme(input = {}) {
   const theme = { ...DEFAULT_THEME };
   if (['dark', 'light'].includes(input.mode)) theme.mode = input.mode;
   if (COLOR.test(String(input.accent || ''))) theme.accent = String(input.accent);
-  if (['system', 'serif', 'mono'].includes(input.font)) theme.font = input.font;
+  if (['system', 'serif', 'mono', 'rounded'].includes(input.font)) theme.font = input.font;
   if (['comfortable', 'compact'].includes(input.density)) theme.density = input.density;
   if (['left', 'right'].includes(input.sidebar)) theme.sidebar = input.sidebar;
   theme.customCss = String(input.customCss || '').replace(/<\/?style[^>]*>/gi, '').replace(/[<>]/g, '').slice(0, 8000);

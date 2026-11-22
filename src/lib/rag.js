@@ -1,10 +1,17 @@
 import { filter, find, id, insertChunks, chunksForDocuments } from './store.js';
-import { embed } from './providers.js';
+import { embed, rerank } from './providers.js';
 import { chunkDocument, chunkText } from './files.js';
 
 export function embeddingConfig(tenantId, agent) {
   const provider = agent?.embeddingProviderId ? find('providers', (p) => p.id === agent.embeddingProviderId && p.tenantId === tenantId) : null;
   const model = agent?.embeddingModel || '';
+  return provider && model ? { provider, model } : null;
+}
+
+export function rerankConfig(tenantId, agent) {
+  const providerId = agent?.rerankProviderId || agent?.embeddingProviderId;
+  const model = agent?.rerankModel || '';
+  const provider = providerId && model ? find('providers', (p) => p.id === providerId && p.tenantId === tenantId) : null;
   return provider && model ? { provider, model } : null;
 }
 
@@ -149,8 +156,25 @@ export async function retrieve(tenantId, agent, query, { topK = 5, extraChunks =
     return { ...candidate, score: hybrid * 0.7 + rerank * 0.3 };
   });
 
-  return scored
-    .sort((a, b) => b.score - a.score)
+  let ranked = scored.sort((a, b) => b.score - a.score);
+  const shortlist = ranked.slice(0, Math.max(topK, 12));
+  const modelConfig = rerankConfig(tenantId, agent);
+  let modelReranked = false;
+  if (modelConfig && shortlist.length > 1) {
+    try {
+      const scores = await rerank(modelConfig.provider, modelConfig.model, query, shortlist.map((item) => item.text));
+      shortlist.forEach((item, index) => {
+        item.modelScore = scores[index] || 0;
+        item.score = item.score * 0.5 + item.modelScore * 0.5;
+      });
+      ranked = shortlist.sort((a, b) => b.score - a.score);
+      modelReranked = true;
+    } catch {
+      // A failing reranker must never break retrieval.
+    }
+  }
+
+  return ranked
     .slice(0, topK)
     .filter((item) => item.score > 0.02)
     .map((item) => ({
@@ -159,6 +183,7 @@ export async function retrieve(tenantId, agent, query, { topK = 5, extraChunks =
       chunkIndex: item.index ?? 0,
       section: item.section || '',
       score: Number(item.score.toFixed(4)),
+      ...(modelReranked ? { modelScore: Number((item.modelScore || 0).toFixed(4)) } : {}),
       preview: item.text.slice(0, 320),
       text: item.text,
     }));

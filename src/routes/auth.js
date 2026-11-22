@@ -4,6 +4,8 @@ import { hashPassword, verifyPassword } from '../lib/security.js';
 import { clearGuest, createSession, publicTenant, publicUser, requireAuth, SESSION_COOKIE } from '../lib/auth.js';
 import { asyncHandler, fail, required } from '../lib/http.js';
 import { DEFAULT_BRANDING, DEFAULT_THEME, sanitizeTheme, slugify } from '../lib/theme.js';
+import { rateLimit } from '../lib/ratelimit.js';
+import { consumePasswordReset, requestPasswordReset } from '../lib/reset.js';
 
 export const authRouter = Router();
 
@@ -12,6 +14,15 @@ authRouter.use((_req, res, next) => {
   res.set('Cache-Control', 'no-store');
   next();
 });
+
+// Reset endpoints get their own tighter limits on top of the /api/auth limit.
+const resetRequestLimiter = rateLimit({
+  scope: 'password-reset-request',
+  limit: 5,
+  windowMs: 15 * 60 * 1000,
+  keyFn: (req) => `${req.ip}:${String(req.body?.email || '').trim().toLowerCase()}`,
+});
+const resetConfirmLimiter = rateLimit({ scope: 'password-reset-confirm', limit: 10, windowMs: 15 * 60 * 1000 });
 
 authRouter.post('/register', asyncHandler((req, res) => {
   const email = required(req.body?.email, 'email').toLowerCase();
@@ -69,6 +80,29 @@ authRouter.post('/login', asyncHandler((req, res) => {
   createSession(res, user.id);
   logAudit(tenant.id, user.id, 'auth.login', {});
   res.json({ user: publicUser(user), tenant: publicTenant(tenant) });
+}));
+
+// Always return the same response so callers cannot enumerate registered emails.
+authRouter.post('/forgot-password', resetRequestLimiter, asyncHandler(async (req, res) => {
+  const email = required(req.body?.email, 'email').toLowerCase();
+  if (!/^\S+@\S+\.\S+$/.test(email)) fail(400, 'Enter a valid email address', 'validation_error');
+  try {
+    await requestPasswordReset(email, req);
+  } catch (error) {
+    // Log the delivery failure for the operator, but keep the client response uniform.
+    console.error('[PeaceAi] Password reset email could not be sent:', error.message);
+  }
+  res.json({ ok: true, message: 'If an account exists for that email, a reset link has been sent.' });
+}));
+
+authRouter.post('/reset-password', resetConfirmLimiter, asyncHandler((req, res) => {
+  const token = required(req.body?.token, 'reset token');
+  const password = required(req.body?.password, 'password');
+  if (password.length < 8) fail(400, 'Password must be at least 8 characters', 'validation_error');
+  if (!consumePasswordReset(token, password)) {
+    fail(400, 'This reset link is invalid or has expired', 'invalid_or_expired_token');
+  }
+  res.json({ ok: true, message: 'Password updated. Please sign in.' });
 }));
 
 authRouter.post('/logout', requireAuth, asyncHandler((req, res) => {

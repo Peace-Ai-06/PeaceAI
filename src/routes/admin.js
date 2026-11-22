@@ -54,6 +54,10 @@ function agentFields(body, tenantId) {
   if (embeddingProviderId && !find('providers', (p) => p.id === embeddingProviderId && p.tenantId === tenantId)) {
     fail(400, 'Selected embedding provider does not exist', 'validation_error');
   }
+  const rerankProviderId = body.rerankProviderId || null;
+  if (rerankProviderId && !find('providers', (p) => p.id === rerankProviderId && p.tenantId === tenantId)) {
+    fail(400, 'Selected reranker provider does not exist', 'validation_error');
+  }
   const knowledgeBaseIds = Array.isArray(body.knowledgeBaseIds) ? body.knowledgeBaseIds : [];
   for (const kbId of knowledgeBaseIds) {
     if (!find('knowledgeBases', (kb) => kb.id === kbId && kb.tenantId === tenantId)) {
@@ -66,12 +70,14 @@ function agentFields(body, tenantId) {
     name: required(body.name, 'agent name'),
     description: optionalString(body.description),
     icon: optionalString(body.icon, '🤖').slice(0, 8),
-    accent: /^#[0-9a-fA-F]{3,8}$/.test(String(body.accent || '')) ? String(body.accent) : '#7c5cff',
+    accent: /^#[0-9a-fA-F]{3,8}$/.test(String(body.accent || '')) ? String(body.accent) : '#8b7bff',
     persona: optionalString(body.persona, 'You are PeaceAi, a helpful assistant.'),
     providerId,
     model: optionalString(body.model),
     embeddingProviderId,
     embeddingModel: optionalString(body.embeddingModel),
+    rerankProviderId,
+    rerankModel: optionalString(body.rerankModel).slice(0, 200),
     knowledgeBaseIds,
     generation: {
       temperature: clampNumber(body.generation?.temperature, 0, 2, 0.6),

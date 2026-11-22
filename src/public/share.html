@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shared agent · PeaceAi</title>
+  <style>
+    :root { color-scheme: dark; --accent: #8b7bff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #0d0f14; color: #e8e9ef; font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .shell { max-width: 780px; margin: 0 auto; padding: 32px 18px 140px; }
+    header { display: flex; gap: 14px; align-items: center; margin-bottom: 24px; }
+    .icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 14px; font-size: 24px; background: color-mix(in srgb, var(--accent) 22%, transparent); }
+    h1 { margin: 0; font-size: 21px; }
+    .brand { color: #9095a6; font-size: 13px; margin-top: 2px; }
+    .card { background: #151821; border: 1px solid #262a36; border-radius: 16px; padding: 22px; }
+    .msg { margin: 0 0 16px; padding: 12px 14px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .user { background: color-mix(in srgb, var(--accent) 18%, transparent); margin-left: 48px; }
+    .assistant { background: #1c202b; margin-right: 48px; }
+    .empty { color: #9095a6; text-align: center; padding: 40px 0; }
+    .composer { position: fixed; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent, #0d0f14 22%); padding: 18px; }
+    .composer form { max-width: 744px; margin: auto; display: flex; gap: 10px; background: #151821; border: 1px solid #2b3040; border-radius: 14px; padding: 8px; }
+    textarea { flex: 1; resize: none; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; padding: 8px; max-height: 140px; }
+    button { border: 0; border-radius: 10px; background: var(--accent); color: #fff; font-weight: 600; padding: 0 20px; cursor: pointer; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .meta { display: flex; justify-content: space-between; color: #7f8496; font-size: 12px; margin-top: 12px; }
+    .error { color: #ff9b9b; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div class="icon" id="icon">✨</div>
+      <div><h1 id="title">Loading…</h1><div class="brand" id="brand"></div></div>
+    </header>
+    <div class="card" id="thread"><div class="empty">Loading shared agent…</div></div>
+    <div class="meta"><span id="quota"></span><span>Powered by PeaceAi</span></div>
+  </div>
+  <div class="composer">
+    <form id="form">
+      <textarea id="input" rows="1" placeholder="Ask a question…" autocomplete="off"></textarea>
+      <button id="send" type="submit">Send</button>
+    </form>
+  </div>
+  <script>
+    const token = location.pathname.split('/').filter(Boolean).pop();
+    const thread = document.getElementById('thread');
+    const input = document.getElementById('input');
+    const send = document.getElementById('send');
+    let info = null;
+
+    const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const add = (role, text) => {
+      if (thread.querySelector('.empty')) thread.innerHTML = '';
+      const div = document.createElement('div');
+      div.className = `msg ${role}`;
+      div.textContent = text;
+      thread.appendChild(div);
+      thread.scrollIntoView({ block: 'end' });
+    };
+    const updateQuota = (remaining) => {
+      if (!remaining) return;
+      document.getElementById('quota').textContent = `${remaining.remaining} of ${remaining.limit} ${remaining.basis} remaining`;
+      if (remaining.remaining <= 0) { input.disabled = true; send.disabled = true; }
+    };
+
+    fetch(`/api/share/${encodeURIComponent(token)}`).then((r) => r.json()).then((data) => {
+      if (!data.agent) { thread.innerHTML = `<div class="empty error">${escapeHtml(data.error?.message || 'This link is not available.')}</div>`; return; }
+      info = data.agent;
+      document.title = `${info.name} · PeaceAi`;
+      document.getElementById('title').textContent = `${info.icon || ''} ${info.name}`.trim();
+      document.getElementById('brand').textContent = info.tenant.appName;
+      if (info.accent) document.documentElement.style.setProperty('--accent', info.accent);
+      thread.innerHTML = `<div class="empty">${escapeHtml(info.description || 'Ask this agent anything.')}</div>`;
+      return fetch(`/api/share/${encodeURIComponent(token)}/session`, { method: 'POST', credentials: 'same-origin' })
+        .then((r) => r.json()).then(updateQuota);
+    }).catch(() => { thread.innerHTML = '<div class="empty error">Could not load this shared agent.</div>'; });
+
+    document.getElementById('form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const message = input.value.trim();
+      if (!message) return;
+      add('user', message);
+      input.value = '';
+      send.disabled = true;
+      send.textContent = '…';
+      try {
+        const response = await fetch(`/api/share/${encodeURIComponent(token)}/chat`, {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          add('assistant', data.error?.message || 'Something went wrong.');
+          if (data.error?.code === 'share_limit_reached') {
+            input.disabled = true;
+            add('assistant', 'Sign up for PeaceAi to keep chatting with your own agents.');
+          }
+        } else {
+          add('assistant', data.reply || '(no reply)');
+          updateQuota(data.remaining);
+        }
+      } catch (error) {
+        add('assistant', 'Could not reach the server.');
+      } finally {
+        send.disabled = false;
+        send.textContent = 'Send';
+        input.focus();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -35,7 +35,9 @@ export function applyTheme() {
   root.dataset.density = t.density === 'compact' ? 'compact' : 'comfortable';
   root.dataset.font = t.font || 'system';
   root.dataset.sidebar = t.sidebar === 'right' ? 'right' : 'left';
-  root.style.setProperty('--accent', t.accent || '#7c9cff');
+  const accent = t.accent || '#8b7bff';
+  root.style.setProperty('--accent', accent);
+  root.style.setProperty('--accent-2', `color-mix(in srgb, ${accent} 55%, #39d7c4)`);
 
   let style = document.getElementById('user-css');
   if (!style) {

@@ -55,7 +55,7 @@ test('theme and branding sanitizers strip unsafe content', () => {
   assert.ok(!theme.customCss.includes('</style>'));
   const branding = sanitizeBranding({ appName: '<img src=x>Peace', accent: 'red' });
   assert.ok(!branding.appName.includes('<'));
-  assert.equal(branding.accent, '#7c5cff');
+  assert.equal(branding.accent, '#8b7bff');
 });
 
 test('built-in local model chats, uses sources, math and tools offline', () => {

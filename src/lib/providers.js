@@ -417,3 +417,43 @@ export async function chat(provider, options, onDelta) {
   if (provider.kind === 'anthropic') return anthropicChat(provider, options, onDelta);
   return openAIChat(provider, options, onDelta);
 }
+
+/**
+ * Cross-encoder-style reranking. Any chat-capable provider can act as a
+ * relevance scorer; the model returns one score per passage and we blend it
+ * into the hybrid retrieval score. Failures are non-fatal for retrieval.
+ */
+export async function rerank(provider, model, query, texts) {
+  if (!texts.length) return [];
+  const passages = texts.map((text, index) => `[${index}] ${String(text).slice(0, 1200)}`).join('\n\n');
+  const prompt = [
+    'Score how relevant each passage is to the query on a scale from 0 to 1.',
+    'Return ONLY a JSON array of numbers in the same order, e.g. [0.9, 0.1, 0.5].',
+    '',
+    `Query: ${query}`,
+    '',
+    `Passages:\n${passages}`,
+  ].join('\n');
+  const result = await chat(provider, {
+    model,
+    messages: [
+      { role: 'system', content: 'You are a precise relevance scorer. Output only a JSON array of numbers.' },
+      { role: 'user', content: prompt },
+    ],
+    temperature: 0,
+    maxTokens: 256,
+  });
+  const content = String(result.content || '');
+  const array = content.match(/\[[^\]]*\]/);
+  const raw = array
+    ? array[0].slice(1, -1).split(',').map((value) => Number(value.trim()))
+    : content.split(/[\n,]/).map((value) => Number(value.trim())).filter(Number.isFinite);
+  // Models vary between 0..1 and 0..10 scales; detect the scale from the
+  // batch so a lone `1` is not mistaken for a full score.
+  const tenPoint = raw.some((value) => Number.isFinite(value) && value > 1);
+  return texts.map((_text, index) => {
+    const value = raw[index];
+    if (!Number.isFinite(value)) return 0;
+    return Math.max(0, Math.min(1, tenPoint ? value / 10 : value));
+  });
+}

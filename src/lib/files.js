@@ -29,6 +29,13 @@ export async function extractText(file) {
     } finally {
       await parser.destroy();
     }
+    // Scanned PDFs have little or no text layer. OCR them when the optional
+    // system binaries are installed (or when explicitly required).
+    if (text.trim().length < 40) {
+      const { ocrPdf } = await import('./ocr.js');
+      const ocrText = ocrPdf(buffer);
+      if (ocrText) text = text ? `${text}\n\n${ocrText}` : ocrText;
+    }
   } else if (ext === '.docx') {
     const mammoth = (await import('mammoth')).default;
     const result = await mammoth.extractRawText({ buffer });

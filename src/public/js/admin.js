@@ -315,7 +315,7 @@ async function agentsTab(host, container) {
         <div class="form-grid">
           ${field('Name', input('name', 'text', '', 'required'))}
           ${field('Icon (emoji or letter)', input('icon', 'text', '🤖', 'maxlength="8"'))}
-          ${field('Accent colour', input('accent', 'color', '#7c9cff'))}
+          ${field('Accent colour', input('accent', 'color', '#8b7bff'))}
           ${field('Visibility', `<select name="visibility" class="select"><option value="tenant">Tenant</option><option value="link">Link</option></select>`)}
         </div>
         ${field('Description', input('description', 'text', ''))}
@@ -351,7 +351,7 @@ async function agentsTab(host, container) {
     form.reset(); formCard.hidden = false;
     const values = {
       name: agent.name || '', description: agent.description || '', icon: agent.icon || '🤖',
-      accent: /^#[0-9a-f]{6}$/i.test(agent.accent || '') ? agent.accent : '#7c9cff',
+      accent: /^#[0-9a-f]{6}$/i.test(agent.accent || '') ? agent.accent : '#8b7bff',
       persona: agent.persona || '', providerId: agent.providerId || '', model: agent.model || '',
       embeddingProviderId: agent.embeddingProviderId || '', embeddingModel: agent.embeddingModel || '',
       visibility: agent.visibility || 'tenant', temperature: agent.generation?.temperature ?? 0.7,
@@ -554,7 +554,7 @@ async function brandingTab(host, container) {
     <div class="form-grid">
       ${field('App name', input('appName', 'text', branding.appName || ''))}
       ${field('Logo text', input('logoText', 'text', branding.logoText || '', 'maxlength="3"'))}
-      ${field('Accent colour', input('accent', 'color', branding.accent || '#7c9cff'))}
+      ${field('Accent colour', input('accent', 'color', branding.accent || '#8b7bff'))}
     </div>
     ${field('Tagline', input('tagline', 'text', branding.tagline || ''))}
     <div class="form-actions"><button type="submit" class="btn btn-primary">Save branding</button></div>
